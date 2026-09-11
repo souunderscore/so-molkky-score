@@ -565,7 +565,7 @@ function esc(s) {
 
 // ─── Firebase Realtime Database リアルタイム同期 (compat版) ───
 const firebaseConfig = {
-  databaseURL: '' // ← 自分のFirebase databaseURLをここに貼り付けてください
+  databaseURL: 'https://so-molkky-score-default-rtdb.asia-southeast1.firebasedatabase.app/'
 };
 firebase.initializeApp(firebaseConfig);
 firebase.database().ref('game').on('value', (snapshot) => {
