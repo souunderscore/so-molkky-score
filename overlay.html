@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>もるまさ OBSオーバーレイ</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', sans-serif;
+  overflow: hidden;
+}
+
+.overlay { padding: 10px; min-width: 300px; }
+
+/* ─── ゲームタイトルバー (A: オレンジ縦線+白背景) ─── */
+.game-title-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 10px 14px 10px 18px;
+  background: #F0F2F6;
+  border-radius: 8px;
+  border-left: 5px solid #FF5500;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+.game-title-name {
+  font-size: 16px;
+  font-weight: 900;
+  color: #14191F;
+  letter-spacing: 0.04em;
+}
+.game-title-reg {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(90deg, #FF5500, #FF7733);
+  padding: 3px 10px;
+  border-radius: 12px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ─── グリッド ─── */
+.teams-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+.teams-grid.count-2 .team-card { flex: 1; min-width: 0; }
+.teams-grid.count-3 .team-card,
+.teams-grid.count-4 .team-card { flex: 1 1 calc(50% - 4px); min-width: 0; }
+.teams-grid.count-5 .team-card,
+.teams-grid.count-6 .team-card { flex: 1 1 calc(33.33% - 6px); min-width: 0; }
+
+/* ─── チームカード（白ベース） ─── */
+.team-card {
+  background: #ffffff;
+  border-radius: 14px;
+  border: 2px solid #D8DDE4;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.team-card.active {
+  border-width: 3px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+}
+
+.team-card.inactive {
+  border-color: #D0D7DF;
+}
+
+.team-card.eliminated {
+  opacity: 0.35;
+  filter: grayscale(0.7);
+}
+
+/* ─── ヘッダーバー ─── */
+.card-header {
+  padding: 9px 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
+}
+
+/* アクティブ: チームカラー背景 */
+.card-header.active-header {
+  /* background は JS でインライン設定 */
+}
+
+/* 非アクティブ: グレー */
+.card-header.inactive-header {
+  background: #E4E9EF;
+}
+
+.team-name {
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.01em;
+}
+
+.active-badge {
+  font-size: 11px;
+  font-weight: 800;
+  background: rgba(255,255,255,0.28);
+  color: #fff;
+  padding: 2px 9px;
+  border-radius: 20px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+
+/* ─── カード本体 ─── */
+.card-body {
+  padding: 10px 14px 11px;
+}
+
+/* ─── スコア ─── */
+.score {
+  font-size: 50px;
+  font-weight: 900;
+  text-align: center;
+  line-height: 1;
+  margin: 2px 0 8px;
+  letter-spacing: -0.02em;
+}
+
+/* ─── プログレスバー ─── */
+.progress-wrap {
+  height: 5px;
+  background: #EDF0F4;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+/* ─── ミスドット ─── */
+.miss-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 5px;
+}
+.miss-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #DDE2E8;
+}
+.miss-dot.hit { background: #EF4444; }
+
+.throw-count {
+  font-size: 10px;
+  color: #8A96A3;
+  margin-top: 2px;
+}
+
+/* ─── 手番バー ─── */
+.turn-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  margin-bottom: 10px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  /* background は JS でインライン設定 */
+}
+.turn-bar .live-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #fff;
+  animation: blink 1.2s infinite;
+  flex-shrink: 0;
+}
+@keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.2;} }
+.turn-bar .turn-label {
+  font-size: 15px; font-weight: 900; color: #fff;
+  letter-spacing: 0.02em;
+}
+.turn-bar .turn-count {
+  font-size: 12px; color: rgba(255,255,255,0.80);
+  margin-left: auto; font-weight: 700;
+}
+
+/* ─── 試合終了時のコンパクトグリッド ─── */
+.compact-grid .score { font-size: 30px !important; margin: 1px 0 4px !important; }
+.compact-grid .score-body { padding: 4px 10px 6px !important; }
+
+/* ─── 試合終了バナー（コンパクト横带） ─── */
+.finished-banner {
+  border-radius: 10px;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  /* background は JS でインライン設定 */
+}
+.finished-banner .trophy { font-size: 18px; flex-shrink: 0; }
+.finished-banner .winner-label {
+  font-size: 13px; color: rgba(255,255,255,0.90);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+}
+.finished-banner .winner-name {
+  font-size: 15px; font-weight: 900; color: #fff; line-height: 1.2;
+}
+
+/* ─── 直近の投擲 ─── */
+.recent-throws {
+  margin-top: 7px;
+  padding: 7px 12px 9px;
+  background: rgba(255,255,255,0.93);
+  border-radius: 10px;
+  border: 1.5px solid rgba(0,0,0,0.07);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.recent-throws table {
+  min-width: max-content;
+}
+.recent-label {
+  font-size: 9px; font-weight: 800;
+  color: #8A96A3; letter-spacing: 0.1em;
+  text-transform: uppercase; margin-bottom: 6px;
+}
+.recent-team-row {
+  display: flex; align-items: center;
+  gap: 4px; flex-wrap: nowrap; overflow: hidden;
+}
+.recent-team-label {
+  font-size: 10px; font-weight: 800;
+  white-space: nowrap; flex-shrink: 0; min-width: 3.5em;
+}
+.throw-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 2px 8px; border-radius: 20px;
+  font-size: 11px; font-weight: 800;
+  min-width: 26px;
+}
+.throw-chip.miss-chip { background: #FEE2E2; color: #DC2626; }
+.throw-chip.burst-chip { background: #FEF3C7; color: #B45309; }
+
+/* ─── 待機中 ─── */
+.no-game {
+  padding: 14px 18px; text-align: center;
+  color: rgba(255,255,255,0.55); font-size: 12px;
+  background: rgba(0,0,0,0.45); border-radius: 12px;
+  backdrop-filter: blur(6px);
+}
+</style>
+</head>
+<body>
+<div class="overlay" id="overlay"></div>
+
+<!-- Firebase SDK (compat版) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script>
+// チーム1=オレンジ、チーム2=青、〃3以降はバランスよく
+const TEAM_COLORS = ['#FF5500','#2B9DC8','#9B59B6','#27AE60','#E67E22','#E74C3C'];
+const STORAGE_KEY = 'molkky_live_state';
+let lastStateStr = null;
+
+function getState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw).data || null;
+  } catch(e) { return null; }
+}
+
+function render(state) {
+  const el = document.getElementById('overlay');
+
+  if (!state || state.phase === 'setup') {
+    el.innerHTML = `<div class="no-game">試合待機中...</div>`;
+    return;
+  }
+
+  // レギュレーションラベル生成
+  const rm = state.regMode || 'match';
+  const rn = state.regN || 3;
+  const regLabel = rm === 'first' ? `${rn}セット先取` : rm === 'total' ? `${rn}セット合計` : `${rn}セット勝負`;
+  // 大会名がなくてもレギュ名は常に表示
+  const titleHtml = `<div class="game-title-bar">
+    ${state.gameName ? `<span class="game-title-name">${esc(state.gameName)}</span>` : ''}
+    <span class="game-title-reg">${regLabel}</span>
+  </div>`;
+
+  if (state.phase === 'finished') {
+    const winner = state.teams.find(t => t.id === state.winnerId);
+    const winColor = winner
+      ? TEAM_COLORS[(winner.colorIdx !== undefined ? winner.colorIdx : state.teams.indexOf(winner)) % TEAM_COLORS.length]
+      : '#FF5500';
+    el.innerHTML = `
+      ${titleHtml}
+      <div class="finished-banner" style="background:linear-gradient(135deg,${winColor},${darken(winColor)});">
+        <div class="trophy">🏆</div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span class="winner-label">勝者</span>
+          <span class="winner-name">${esc(winner ? winner.name : '引き分け')}</span>
+        </div>
+      </div>
+      <div class="compact-grid">${buildTeamsGrid(state)}</div>
+      ${buildSetAnalysis(state)}
+    `;
+    return;
+  }
+
+  const cur = state.teams[state.currentTeamIdx];
+  const curColor = cur
+    ? TEAM_COLORS[(cur.colorIdx !== undefined ? cur.colorIdx : state.currentTeamIdx) % TEAM_COLORS.length]
+    : '#FF5500';
+  const turnNum = Math.floor((state.turnCount || 0) / Math.max(1, state.teams.filter(t=>!t.isEliminated).length)) + 1;
+  const turnHtml = cur && !cur.isEliminated ? `
+    <div class="turn-bar" style="background:${curColor};">
+      <div class="live-dot"></div>
+      <div class="turn-label">▶ ${esc(cur.name)} の番</div>
+      <div class="turn-count">ターン ${turnNum}</div>
+    </div>` : '';
+
+  el.innerHTML = `
+    ${titleHtml}
+    ${turnHtml}
+    ${buildTeamsGrid(state)}
+    ${buildRecentThrows(state)}
+  `;
+}
+
+function buildTeamsGrid(state) {
+  const count = state.teams.length;
+  const curId = state.teams[state.currentTeamIdx]?.id;
+
+  const cards = state.teams.map((t, i) => {
+    const isActive = t.id === curId && state.phase === 'playing' && !t.isEliminated;
+    const cls = t.isEliminated ? 'eliminated' : isActive ? 'active' : 'inactive';
+    const color = TEAM_COLORS[(t.colorIdx !== undefined ? t.colorIdx : i) % TEAM_COLORS.length];
+    const pct = Math.min(100, Math.round((t.score / state.targetScore) * 100));
+
+    // ヘッダー: アクティブ=チームカラー背景・白文字、非アクティブ=グレー背景・ダーク文字
+    const headerBg    = isActive ? color : '#E4E9EF';
+    const headerCls   = isActive ? 'active-header' : 'inactive-header';
+    const nameColor   = isActive ? '#fff' : '#4A5568';
+    const badgeHtml   = isActive
+      ? `<span class="active-badge">▶ 投擲中</span>` : '';
+
+    // スコア: 両方チームカラーで同じ濃さ
+    const scoreColor  = t.isEliminated ? '#94A3B8' : color;
+    const scoreDisp   = t.isEliminated ? '❌' : t.score;
+
+    const missDots = Array.from({ length: state.maxMiss || 3 }, (_, mi) =>
+      `<div class="miss-dot ${mi < (t.missStreak || 0) ? 'hit' : ''}"></div>`
+    ).join('');
+
+    // カードのborder色
+    const borderStyle = isActive
+      ? `border-color:${color};`
+      : `border-color:#D0D7DF;`;
+
+    const setWins = t.setWins || 0;
+    const setTotalScore = t.setTotalScore || 0;
+    const hasSets = (state.teams.some(tm => (tm.setWins || 0) > 0 || (tm.setTotalScore || 0) > 0));
+    const totalSetsNeeded = state.regN || 3;
+    // ドット式：勝利済み=実色、未勝利=空白
+    const setWinBadge = hasSets ? Array.from({length: totalSetsNeeded}, (_, di) =>
+      di < setWins
+        ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${isActive?'#fff':color};margin:0 1px;"></span>`
+        : `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:transparent;border:1.5px solid ${isActive?'rgba(255,255,255,0.5)':color};margin:0 1px;opacity:0.45;"></span>`
+    ).join('') : '';
+    const totalBadge = hasSets
+      ? `<span style="font-size:9px;font-weight:700;color:${isActive?'rgba(255,255,255,0.8)':'#6b7280'};margin-left:4px;">計${setTotalScore}</span>`
+      : '';
+
+    return `
+      <div class="team-card ${cls}" style="${borderStyle}">
+        <div class="card-header ${headerCls}" style="background:${headerBg};">
+          <span style="display:flex;align-items:center;gap:2px;flex-wrap:wrap;">
+            <span class="team-name" style="color:${nameColor};">${esc(t.name)}</span>
+            ${setWinBadge}
+            ${totalBadge}
+          </span>
+          ${badgeHtml}
+        </div>
+        <div class="card-body">
+          <div class="score" style="color:${scoreColor};">${scoreDisp}</div>
+          <div class="progress-wrap">
+            <div class="progress-fill" style="width:${pct}%;background:${color};"></div>
+          </div>
+          <div class="miss-row">${missDots}</div>
+          <div class="throw-count">${t.throwCount || 0}投 / ${t.missCount || 0}ミス</div>
+        </div>
+      </div>`;
+  });
+
+  return `<div class="teams-grid count-${count}">${cards.join('')}</div>`;
+}
+
+function buildRecentThrows(state) {
+  const throws = state.recentThrows;
+  if (!throws || throws.length === 0) return '';
+
+  const teams = state.teams;
+  const n = teams.length;
+
+  // チームカラーと名前
+  const teamColors = teams.map((t, i) =>
+    TEAM_COLORS[(t.colorIdx !== undefined ? t.colorIdx : i) % TEAM_COLORS.length]
+  );
+
+  // ターン番号ごとに各チームの投擲をマッピング
+  // { turnNum -> { teamIdx -> throwData } }
+  const turnMap = {};
+  throws.forEach(h => {
+    const t = h.turnNum;
+    if (!turnMap[t]) turnMap[t] = {};
+    turnMap[t][h.teamIdx] = h;
+  });
+
+  const turnNums = Object.keys(turnMap).map(Number).sort((a,b) => a-b);
+  // 常に最新5ターン分だけ表示（古いものは左に流れて消える）
+  const visibleTurns = turnNums.slice(-5);
+
+  // チームごとに1行、ターンを横に並べる転置レイアウト
+  // 左端: チーム名 | ターン1 | ターン2 | ...
+  const teamRows = teams.map((t, ti) => {
+    const color = teamColors[ti];
+    const cells = visibleTurns.map(turnNum => {
+      const h = turnMap[turnNum] && turnMap[turnNum][ti];
+      if (!h) return `<td style="text-align:center;padding:3px 5px;"><span style="color:#ccc;font-size:10px;">—</span></td>`;
+      let chip;
+      if (h.points === 0) {
+        chip = `<span class="throw-chip miss-chip">ミス</span>`;
+      } else if (h.burst) {
+        chip = `<span class="throw-chip burst-chip">${h.points}→25</span>`;
+      } else {
+        chip = `<span class="throw-chip" style="background:${color}18;color:${color};border:1.5px solid ${color}44;">${h.points}</span>`;
+      }
+      return `<td style="text-align:center;padding:3px 5px;">${chip}</td>`;
+    }).join('');
+    return `<tr>
+      <td style="padding:3px 8px 3px 0;font-size:10px;font-weight:800;color:${color};white-space:nowrap;">${esc(t.name)}</td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  // ターン番号ヘッダー
+  const turnHeaders = visibleTurns.map(n =>
+    `<th style="text-align:center;padding:3px 5px;font-size:10px;font-weight:700;color:#8A96A3;">${n}</th>`
+  ).join('');
+
+  return `
+    <div class="recent-throws">
+      <div class="recent-label">直近の投擲</div>
+      <table style="border-collapse:collapse;">
+        <thead><tr>
+          <th style="padding:3px 8px 3px 0;font-size:10px;color:#8A96A3;font-weight:600;text-align:left;">投</th>
+          ${turnHeaders}
+        </tr></thead>
+        <tbody>${teamRows}</tbody>
+      </table>
+    </div>`;
+}
+
+// ─── 試合全体分析（試合終了時）───
+function buildSetAnalysis(state) {
+  const setResults = state.setResults || [];
+  if (setResults.length === 0) return '';
+
+  // 全セットの投擲をチームごとに集計
+  const teamMap = {}; // teamId → { teamName, colorIdx, throws[] }
+  setResults.forEach(sr => {
+    (sr.scores || []).forEach(sc => {
+      if (!teamMap[sc.teamId]) {
+        teamMap[sc.teamId] = { teamName: sc.teamName || '', colorIdx: 0, throws: [] };
+        const t = state.teams.find(t2 => t2.id === sc.teamId);
+        if (t) teamMap[sc.teamId].colorIdx = t.colorIdx !== undefined ? t.colorIdx : t.id;
+      }
+      teamMap[sc.teamId].throws.push(...(sc.throws || []));
+    });
+  });
+
+  // 試合全体のタイムスタンプで時間を計算
+  const allTs = Object.values(teamMap).flatMap(d => d.throws.map(h => h.timestamp).filter(Boolean));
+  const durStr = allTs.length >= 2
+    ? (() => { const s = Math.round((Math.max(...allTs) - Math.min(...allTs)) / 1000); return s >= 60 ? `${Math.floor(s/60)}分${s%60}秒` : `${s}秒`; })()
+    : null;
+
+  // ターン数：全セットの投擲数の最大値（チーム数で割る）
+  const teamCount = Object.keys(teamMap).length || 1;
+  const totalThrows = Math.max(...Object.values(teamMap).map(d => d.throws.length), 0);
+  const totalTurns = Math.ceil(totalThrows / teamCount) || 0;
+
+  // チーム統計行
+  const statRows = Object.entries(teamMap).map(([tid, data]) => {
+    const color = TEAM_COLORS[data.colorIdx % TEAM_COLORS.length];
+    const throws = data.throws;
+    const total = throws.length;
+    const intendedCount = throws.filter(h => h.intended !== false).length;
+    const missCount = throws.filter(h => h.points === 0).length;
+    const intendedRate = total > 0 ? Math.round(intendedCount / total * 100) + '%' : '-';
+    const missAvoidRate = total > 0 ? Math.round((total - missCount) / total * 100) + '%' : '-';
+    const isWinner = state.winnerId == tid;
+
+    return `
+      <tr style="border-bottom:1px solid #f0f4f8;">
+        <td style="padding:4px 6px;">
+          <span style="display:inline-flex;align-items:center;gap:4px;">
+            <span style="width:6px;height:6px;border-radius:50%;background:${color};display:inline-block;"></span>
+            <span style="font-weight:800;font-size:10px;color:${color};">${esc(data.teamName)}</span>
+            ${isWinner ? '<span style="font-size:8px;background:#FFF0E8;color:#FF5500;padding:1px 4px;border-radius:5px;font-weight:800;">勝者</span>' : ''}
+          </span>
+        </td>
+        <td style="text-align:center;font-size:10px;">${total}投</td>
+        <td style="text-align:center;font-size:10px;font-weight:700;color:${intendedCount/total>=0.7?'#16A34A':'#374151'}">${intendedRate}</td>
+        <td style="text-align:center;font-size:10px;font-weight:700;color:${(total-missCount)/total>=0.7?'#16A34A':'#374151'}">${missAvoidRate}</td>
+      </tr>`;
+  }).join('');
+
+  return `
+    <div style="background:#fff;border-radius:8px;margin-top:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.15);border-left:4px solid #FF5500;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 10px;background:#FFF8F5;border-bottom:1px solid #FFE8D6;">
+        <span style="font-size:11px;font-weight:900;color:#14191F;">試合分析</span>
+        <span style="font-size:9px;color:#6b7280;">${durStr ? '⏱ ' + durStr + ' · ' : ''}全${totalTurns}ターン · ${setResults.length}セット</span>
+      </div>
+      <table style="width:100%;border-collapse:collapse;">
+        <thead><tr style="background:#FFF8F5;">
+          <th style="padding:3px 6px;font-size:9px;text-align:left;color:#9CA3AF;">チーム</th>
+          <th style="text-align:center;font-size:9px;color:#9CA3AF;">投擲数</th>
+          <th style="text-align:center;font-size:9px;color:#9CA3AF;">狙い通り率</th>
+          <th style="text-align:center;font-size:9px;color:#9CA3AF;">ミス回避率</th>
+        </tr></thead>
+        <tbody>${statRows}</tbody>
+      </table>
+    </div>`;
+}
+
+// カラーを少し暗くする（グラデ用）
+function darken(hex) {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  const f = 0.75;
+  return `rgb(${Math.round(r*f)},${Math.round(g*f)},${Math.round(b*f)})`;
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── Firebase Realtime Database リアルタイム同期 (compat版) ───
+const firebaseConfig = {
+  databaseURL: '' // ← 自分のFirebase databaseURLをここに貼り付けてください
+};
+firebase.initializeApp(firebaseConfig);
+firebase.database().ref('game').on('value', (snapshot) => {
+  const data = snapshot.val();
+  if (data) {
+    const s = JSON.stringify(data);
+    if (s !== lastStateStr) { lastStateStr = s; render(data); }
+  }
+});
+
+// フォールバック: BroadcastChannel（同一デバイス内の即時同期）
+try {
+  const bc = new BroadcastChannel('molkky_live');
+  bc.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'state') { lastStateStr = JSON.stringify(msg.data); render(msg.data); }
+    } catch(_) {}
+  };
+} catch(_) {}
+
+// 初期表示: localStorageから読み込み（Firebase接続前の表示用）
+const init = getState();
+if (init) { lastStateStr = JSON.stringify(init); render(init); } else { render(null); }
+</script>
+</body>
+</html>

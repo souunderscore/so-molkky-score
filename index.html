@@ -1,0 +1,1539 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>もるまさスコア</title>
+<link rel="icon" href="icon.png"/>
+<!-- Firebase SDK (compat版: StreamLabs等の旧Chromiumでも動作) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script>
+(function() {
+  const firebaseConfig = {
+    databaseURL: '' // ← 自分のFirebase databaseURLをここに貼り付けてください
+  };
+  const app = firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+  window._fbSet = (path, data) => db.ref(path).set(data);
+})();
+</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+
+/* ─── カラートークン ─── */
+:root{
+  --c-orange:#FF5500;
+  --c-orange-light:#FFF0E8;
+  --c-orange-mid:#FF7733;
+  --c-blue:#2B9DC8;
+  --c-blue-light:#E8F6FC;
+  --c-blue-mid:#4AAFE0;
+  --c-bg:#F4F7FA;
+  --c-surface:#fff;
+  --c-border:#E2E8F0;
+  --c-text:#1A2332;
+  --c-muted:#6B7A8D;
+  --c-red:#EF4444;
+  --c-red-light:#FEF2F2;
+}
+
+body{background:var(--c-bg);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Hiragino Sans',sans-serif;color:var(--c-text);min-height:100vh;font-size:13px;}
+.app{max-width:520px;margin:0 auto;padding:6px 8px;}
+
+/* ─── ボタン ─── */
+.btn{padding:7px 12px;border:1.5px solid var(--c-border);border-radius:10px;background:var(--c-surface);color:var(--c-text);cursor:pointer;font-size:13px;font-family:inherit;transition:all 0.12s;font-weight:500;}
+.btn:hover{background:#f0f4f8;}.btn:active{transform:scale(0.96);}
+.btn-primary{background:var(--c-orange);color:#fff;border-color:var(--c-orange);}.btn-primary:hover{background:#e04a00;}
+.btn-blue{background:var(--c-blue);color:#fff;border-color:var(--c-blue);}.btn-blue:hover{background:#2389b0;}
+.btn-red{background:var(--c-red);color:#fff;border-color:var(--c-red);}.btn-red:hover{background:#dc2626;}
+.btn-orange{background:var(--c-orange);color:#fff;border-color:var(--c-orange);}.btn-orange:hover{background:#e04a00;}
+.btn-gray{background:#f0f4f8;color:#374151;border-color:var(--c-border);}.btn-gray:hover{background:#e2e8f0;}
+.btn-sm{padding:5px 10px;font-size:12px;}
+.btn-xs{padding:3px 8px;font-size:11px;}
+.btn:disabled{opacity:0.35;cursor:not-allowed;transform:none;}
+.btn-block{width:100%;text-align:center;}
+
+/* ─── カード ─── */
+.card{background:var(--c-surface);border:1px solid var(--c-border);border-radius:12px;overflow:hidden;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,0.05);}
+.card-header{padding:8px 12px;border-bottom:1px solid var(--c-border);display:flex;align-items:center;gap:6px;background:#FAFBFC;}
+.card-body{padding:10px 12px;}
+.card-title{font-size:14px;font-weight:700;}
+
+/* ─── フォーム ─── */
+input[type=text],input[type=number],select{width:100%;padding:10px 12px;border:1.5px solid var(--c-border);border-radius:9px;background:#f9fafb;color:var(--c-text);font-size:15px;font-family:inherit;}
+input[type=text]:focus,input[type=number]:focus,select:focus{outline:none;border-color:var(--c-orange);background:#fff;}
+label{display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:5px;}
+.form-group{margin-bottom:14px;}
+
+/* ─── ヘッダー ─── */
+.page-header{display:flex;align-items:center;gap:8px;padding:6px 0 6px;}
+.page-header img{width:28px;height:28px;border-radius:8px;object-fit:cover;}
+.page-header h1{font-size:16px;font-weight:800;color:var(--c-text);}
+.page-header p{font-size:11px;color:var(--c-muted);}
+.live-badge{background:var(--c-red);color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px;animation:pulse 1.5s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.6;}}
+
+/* ─── ピン入力グリッド ─── */
+.pin-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin:6px 0;}
+.pin-btn{aspect-ratio:unset;padding:10px 4px;border:2px solid var(--c-border);border-radius:10px;background:var(--c-surface);font-size:17px;font-weight:800;cursor:pointer;transition:all 0.1s;display:flex;align-items:center;justify-content:center;color:var(--c-text);}
+.pin-btn:hover{border-color:var(--c-orange);background:var(--c-orange-light);color:var(--c-orange);}
+.pin-btn:active{transform:scale(0.93);}
+.pin-btn.miss{border-color:var(--c-red);background:var(--c-red-light);color:var(--c-red);}
+.pin-btn.miss:hover{background:#fee2e2;}
+
+/* ─── スコアボード ─── */
+.score-board{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:6px 0;}
+.score-card{border-radius:12px;padding:8px;text-align:center;border:2px solid transparent;}
+.score-card.active{border-color:var(--c-orange);box-shadow:0 0 0 3px rgba(255,85,0,0.12);}
+.score-card.eliminated{opacity:0.4;}
+.score-card .team-name{font-size:12px;font-weight:700;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.score-card .score-num{font-size:36px;font-weight:900;line-height:1;}
+.score-card .score-sub{font-size:10px;color:var(--c-muted);margin-top:2px;}
+.score-card .miss-dots{display:flex;gap:4px;justify-content:center;margin-top:6px;}
+.miss-dot{width:10px;height:10px;border-radius:50%;background:#e5e7eb;}
+.miss-dot.active{background:var(--c-red);}
+
+/* ─── 試合履歴テーブル ─── */
+.hist-table{width:100%;border-collapse:collapse;font-size:13px;}
+.hist-table th,.hist-table td{border:1px solid var(--c-border);padding:6px 8px;text-align:center;}
+.hist-table th{background:#f0f4f8;font-weight:600;color:var(--c-muted);}
+.hist-table tr.winner{background:var(--c-orange-light);}
+.hist-table tr.elim{opacity:0.4;}
+
+/* ─── タブ ─── */
+.tabs{display:flex;border-bottom:2px solid var(--c-border);margin-bottom:8px;}
+.tab{flex:1;padding:7px;text-align:center;font-size:13px;font-weight:600;color:var(--c-muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.15s;}
+.tab.active{color:var(--c-orange);border-bottom-color:var(--c-orange);}
+
+/* ─── 投擲チップ（オーバーレイと統一） ─── */
+.throw-history{display:flex;flex-wrap:wrap;gap:5px;padding:8px 0;}
+.throw-chip{display:inline-flex;align-items:center;justify-content:center;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:800;background:#f1f5f9;color:#334155;min-width:28px;border:1.5px solid #e2e8f0;}
+.throw-chip.miss{background:var(--c-red-light);color:var(--c-red);border-color:#fca5a5;}
+.throw-chip.undo{opacity:0.4;text-decoration:line-through;}
+
+/* ─── セットアップ ─── */
+.team-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.team-row input{flex:1;}
+.team-color{width:16px;height:16px;border-radius:4px;flex-shrink:0;}
+
+/* ─── OBSオーバーレイ情報 ─── */
+.overlay-box{background:#1e293b;color:#e2e8f0;border-radius:12px;padding:14px;font-size:13px;}
+.overlay-box .url-row{display:flex;gap:8px;align-items:center;margin-top:8px;}
+.overlay-box input{background:#0f172a;color:#94a3b8;border-color:#334155;font-size:12px;font-family:monospace;}
+.overlay-box .copy-btn{background:var(--c-blue);color:#fff;border:none;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:13px;white-space:nowrap;}
+.overlay-box .copy-btn.copied{background:var(--c-orange);}
+
+/* ─── 試合終了 ─── */
+.result-banner{background:linear-gradient(135deg,var(--c-orange),#cc4400);color:#fff;border-radius:16px;padding:24px;text-align:center;margin-bottom:14px;}
+.result-banner .trophy{font-size:52px;margin-bottom:8px;}
+.result-banner .winner-name{font-size:26px;font-weight:900;}
+.result-banner .winner-score{font-size:18px;opacity:0.85;margin-top:4px;}
+
+/* ─── ローディング ─── */
+.spinner{display:inline-block;width:18px;height:18px;border:2px solid #e5e7eb;border-top-color:var(--c-orange);border-radius:50%;animation:spin 0.7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ─── モーダル ─── */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;overflow-y:auto;padding:16px;}
+.modal-bg.open{display:flex;align-items:flex-start;justify-content:center;}
+.modal{background:#fff;border-radius:16px;max-width:480px;width:100%;padding:20px;margin:auto;}
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
+.modal-title{font-size:17px;font-weight:700;}
+.modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:#6b7280;line-height:1;}
+
+/* ─── レギュレーション選択 ─── */
+.reg-group{margin-bottom:14px;}
+.reg-tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;}
+.reg-tab{padding:7px 14px;border-radius:20px;border:1.5px solid var(--c-border);background:#f9fafb;color:#374151;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.12s;}
+.reg-tab.active{background:var(--c-orange);color:#fff;border-color:var(--c-orange);}
+.reg-options{display:flex;flex-direction:column;gap:0;border:1.5px solid var(--c-border);border-radius:10px;overflow:hidden;}
+.reg-option{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#fff;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:14px;font-weight:500;transition:background 0.1s;}
+.reg-option:last-child{border-bottom:none;}
+.reg-option:hover{background:var(--c-orange-light);}
+.reg-option.selected{background:var(--c-orange-light);color:var(--c-orange);font-weight:700;}
+.reg-radio{width:18px;height:18px;border-radius:50%;border:2px solid var(--c-border);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.reg-option.selected .reg-radio{border-color:var(--c-orange);background:var(--c-orange);}
+.reg-option.selected .reg-radio::after{content:'';width:7px;height:7px;border-radius:50%;background:#fff;display:block;}
+
+/* ─── セット進行バー ─── */
+.set-progress{display:flex;gap:6px;align-items:center;justify-content:center;margin:6px 0;}
+.set-dot{width:12px;height:12px;border-radius:50%;background:#e5e7eb;border:1.5px solid #d1d5db;}
+.set-dot.win{background:var(--c-orange);border-color:var(--c-orange);}
+.set-dot.lose{background:var(--c-red);border-color:var(--c-red);}
+
+/* ─── 成績タブ ─── */
+.stats-card{background:var(--c-surface);border:1px solid var(--c-border);border-radius:14px;overflow:hidden;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,0.05);}
+.stat-row{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--c-border);}
+.stat-row:last-child{border-bottom:none;}
+.stat-label{font-size:13px;color:var(--c-muted);}
+.stat-value{font-size:15px;font-weight:700;color:var(--c-text);}
+
+/* ─── レスポンシブ ─── */
+@media(min-width:600px){
+  .app{padding:20px;}
+  .pin-grid{grid-template-columns:repeat(4,1fr);gap:10px;}
+  .pin-btn{font-size:24px;}
+}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+
+<div class="modal-bg" id="modal-confirm">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-confirm-title">確認</div>
+      <button class="modal-close" onclick="closeModal('modal-confirm')">✕</button>
+    </div>
+    <div id="modal-confirm-body" style="margin-bottom:16px;font-size:14px;line-height:1.7;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-gray" onclick="closeModal('modal-confirm')">キャンセル</button>
+      <button class="btn btn-red" id="modal-confirm-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// 定数
+// ═══════════════════════════════════════════════════════════════
+const MAX_SCORE = 50;
+const RESET_SCORE = 25;
+const MAX_MISS = 3;
+const COLORS = ['#FF5500','#2B9DC8','#9B59B6','#27AE60','#E67E22','#E74C3C'];
+const LIGHT_COLORS = ['#FFF0E8','#E8F6FC','#F5EEF8','#E9F7EF','#FEF5E7','#FDEDEC'];
+
+// ═══════════════════════════════════════════════════════════════
+// 状態管理
+// ═══════════════════════════════════════════════════════════════
+const STORAGE_KEY = 'molkky_masa_v2';
+
+let S = loadState() || {
+  phase: 'setup',          // setup | playing | set_finished | finished
+  settings: {
+    teamCount: 2,
+    targetScore: 50,
+    maxMiss: 3,
+    gameName: '',
+    regMode: 'match',      // 'match'=Nセット勝負 | 'first'=Nセット先取 | 'total'=Nセット合計
+    regN: 3,               // セット数
+  },
+  teams: [],               // [{id, name, score, missStreak, history, isEliminated, setWins, setTotalScore}]
+  currentTeamIdx: 0,
+  turnCount: 0,
+  currentSet: 1,           // 現在のセット番号
+  setResults: [],          // [{setNum, winnerId, scores:[{teamId,score}]}]
+  startedAt: null,
+  finishedAt: null,
+  winnerId: null,
+  history: [],             // 過去の試合記録
+};
+
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(S)); } catch(e) {}
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch(e) { return null; }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ゲームロジック
+// ═══════════════════════════════════════════════════════════════
+function initTeams(names, keepSetStats) {
+  return names.map((name, i) => ({
+    id: i,
+    name: name || (i === 0 ? 'もるまさ' : i === 1 ? '相手' : i === 2 ? '相手２' : `相手${i + 1}`),
+    colorIdx: i, // 固有カラーインデックス（常に初期位置で固定）
+    score: 0,
+    missStreak: 0,
+    history: [],
+    isEliminated: false,
+    setWins: keepSetStats && S.teams[i] ? S.teams[i].setWins : 0,
+    setTotalScore: keepSetStats && S.teams[i] ? S.teams[i].setTotalScore : 0,
+  }));
+}
+
+function applyThrow(teamIdx, points) {
+  const team = S.teams[teamIdx];
+  if (!team || team.isEliminated) return;
+
+  const timestamp = Date.now();
+  const prevScore = team.score;
+
+  if (points === 0) {
+    // ミス
+    team.missStreak++;
+    team.history.push({ points: 0, prevScore, timestamp, intended: false });
+    if (team.missStreak >= S.settings.maxMiss) {
+      team.isEliminated = true;
+      // 3ミス脱落: 脆者=0点、勝者=50点で強制設定
+      team.score = 0;
+      const alive = S.teams.filter(t => !t.isEliminated);
+      if (alive.length === 1) {
+        alive[0].score = S.settings.targetScore; // 50点
+      }
+    }
+  } else {
+    team.missStreak = 0;
+    const newScore = team.score + points;
+    if (newScore > MAX_SCORE) {
+      // バースト → 25点に戻る
+      team.score = RESET_SCORE;
+      team.history.push({ points, prevScore, burst: true, timestamp, intended: true });
+    } else {
+      team.score = newScore;
+      team.history.push({ points, prevScore, timestamp, intended: true });
+    }
+  }
+
+  // 勝利チェック
+  if (team.score === S.settings.targetScore) {
+    endSet(team.id);
+    return;
+  }
+
+  // 全チーム失格チェック
+  const alive = S.teams.filter(t => !t.isEliminated);
+  if (alive.length === 1) {
+    endSet(alive[0].id);
+    return;
+  }
+  if (alive.length === 0) {
+    endSet(null);
+    return;
+  }
+
+  // 次のチームへ
+  advanceTurn();
+  saveState();
+  render();
+}
+
+function advanceTurn() {
+  S.turnCount++;
+  let next = (S.currentTeamIdx + 1) % S.teams.length;
+  let count = 0;
+  while (S.teams[next].isEliminated && count < S.teams.length) {
+    next = (next + 1) % S.teams.length;
+    count++;
+  }
+  S.currentTeamIdx = next;
+}
+
+function undoLastThrow() {
+  const team = S.teams[S.currentTeamIdx];
+  // まず現在のチームの最後の投擲を探す
+  // 前のチームに戻る
+  let prevIdx = S.currentTeamIdx;
+  let found = false;
+
+  // 直前の有効な投擲を持つチームを探す
+  for (let i = 0; i < S.teams.length; i++) {
+    prevIdx = (S.currentTeamIdx - 1 - i + S.teams.length * 10) % S.teams.length;
+    if (S.teams[prevIdx].history.length > 0) {
+      found = true;
+      break;
+    }
+  }
+
+  if (!found) return;
+
+  const prevTeam = S.teams[prevIdx];
+  const last = prevTeam.history[prevTeam.history.length - 1];
+  prevTeam.history.pop();
+  prevTeam.score = last.prevScore;
+  prevTeam.isEliminated = false;
+
+  // missStreakを再計算
+  let streak = 0;
+  for (let i = prevTeam.history.length - 1; i >= 0; i--) {
+    if (prevTeam.history[i].points === 0) streak++;
+    else break;
+  }
+  prevTeam.missStreak = streak;
+
+  S.currentTeamIdx = prevIdx;
+  if (S.turnCount > 0) S.turnCount--;
+  saveState();
+  render();
+}
+
+// セット終了処理
+function endSet(setWinnerId) {
+  const { regMode, regN } = S.settings;
+
+  // セット結果を記録（投擲履歴も保存）
+  const setScores = S.teams.map(t => ({
+    teamId: t.id,
+    teamName: t.name,
+    score: t.score,
+    throws: JSON.parse(JSON.stringify(t.history || []))
+  }));
+  S.setResults.push({ setNum: S.currentSet, winnerId: setWinnerId, scores: setScores });
+
+  // セット勝利カウント・合計スコアを更新
+  S.teams.forEach(t => {
+    t.setTotalScore = (t.setTotalScore || 0) + t.score;
+    if (t.id === setWinnerId) t.setWins = (t.setWins || 0) + 1;
+  });
+
+  // 試合終了判定
+  const totalSets = S.setResults.length;
+
+  if (regMode === 'first') {
+    // Nセット先取: 誰かがN勝したら終了
+    const champion = S.teams.find(t => t.setWins >= regN);
+    if (champion) {
+      endGame(champion.id);
+      return;
+    }
+  } else if (regMode === 'match') {
+    // Nセット勝負: N回消化したら終了
+    if (totalSets >= regN) {
+      // 最多セット勝利者が優勝
+      const maxWins = Math.max(...S.teams.map(t => t.setWins || 0));
+      const winners = S.teams.filter(t => (t.setWins || 0) === maxWins);
+      endGame(winners.length === 1 ? winners[0].id : null);
+      return;
+    }
+  } else if (regMode === 'total') {
+    // Nセット合計: N回消化したら合計スコアで勝敗
+    if (totalSets >= regN) {
+      const maxTotal = Math.max(...S.teams.map(t => t.setTotalScore || 0));
+      const winners = S.teams.filter(t => (t.setTotalScore || 0) === maxTotal);
+      endGame(winners.length === 1 ? winners[0].id : null);
+      return;
+    }
+  }
+
+  // まだ続く → 次のセットへ
+  S.phase = 'set_finished';
+  S.lastSetWinnerId = setWinnerId;
+  saveState();
+  broadcastState();
+  render();
+}
+
+function nextSet() {
+  S.currentSet++;
+  // 並び替え順序を適用
+  const draft = getOrderDraft();
+  const reordered = draft.map(idx => S.teams[idx]);
+  // setWins/setTotalScoreを引き継ぎつつスコアリセット
+  S.teams = reordered.map((t) => ({
+    id: t.id,           // 元のIDを維持（履歴参照の整合性を保つ）
+    name: t.name,
+    colorIdx: t.colorIdx !== undefined ? t.colorIdx : t.id, // 固有カラーを引き継ぎ
+    score: 0,
+    missStreak: 0,
+    history: [],
+    isEliminated: false,
+    setWins: t.setWins || 0,
+    setTotalScore: t.setTotalScore || 0,
+  }));
+  _orderDraft = null; // リセット
+  S.currentTeamIdx = 0;
+  S.turnCount = 0;
+  S.phase = 'playing';
+  saveState();
+  broadcastState();
+  render();
+}
+
+function endGame(winnerId) {
+  S.phase = 'finished';
+  S.winnerId = winnerId;
+  S.finishedAt = Date.now();
+
+  // 履歴に追加
+  S.history.unshift({
+    id: Date.now(),
+    gameName: S.settings.gameName,
+    teams: JSON.parse(JSON.stringify(S.teams)),
+    winnerId,
+    startedAt: S.startedAt,
+    finishedAt: S.finishedAt,
+    settings: { ...S.settings },
+    setResults: JSON.parse(JSON.stringify(S.setResults || [])),
+  });
+  if (S.history.length > 50) S.history.pop();
+
+  saveState();
+  broadcastState();
+  render();
+}
+
+function startGame() {
+  const names = [];
+  for (let i = 0; i < S.settings.teamCount; i++) {
+    const el = document.getElementById(`team-name-${i}`);
+        names.push(el ? el.value.trim() : (i === 0 ? 'もるまさ' : i === 1 ? '相手' : i === 2 ? '相手２' : `相手${i + 1}`));
+  }
+  const gname = document.getElementById('game-name');
+  S.settings.gameName = gname ? gname.value.trim() : '';
+  // 大会名を別途保存（次回起動時に自動復元）
+  if (S.settings.gameName) {
+    try { localStorage.setItem('molkky_game_name', S.settings.gameName); } catch(e) {}
+  }
+
+  S.teams = initTeams(names);
+  S.currentTeamIdx = 0;
+  S.turnCount = 0;
+  S.currentSet = 1;
+  S.setResults = [];
+  S.lastSetWinnerId = null;
+  S.startedAt = Date.now();
+  S.finishedAt = null;
+  S.winnerId = null;
+  S.phase = 'playing';
+  saveState();
+  broadcastState();
+  render();
+}
+
+function resetGame() {
+  S.phase = 'setup';
+  S.teams = [];
+  S.currentTeamIdx = 0;
+  S.turnCount = 0;
+  S.currentSet = 1;
+  S.setResults = [];
+  S.lastSetWinnerId = null;
+  S.startedAt = null;
+  S.finishedAt = null;
+  S.winnerId = null;
+  saveState();
+  broadcastState();
+  render();
+}
+
+function rematch() {
+  const names = S.teams.map(t => t.name);
+  S.teams = initTeams(names);
+  S.currentTeamIdx = 0;
+  S.turnCount = 0;
+  S.currentSet = 1;
+  S.setResults = [];
+  S.lastSetWinnerId = null;
+  S.startedAt = Date.now();
+  S.finishedAt = null;
+  S.winnerId = null;
+  S.phase = 'playing';
+  saveState();
+  broadcastState();
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ライブ同期（BroadcastChannel + localStorage）
+// ═══════════════════════════════════════════════════════════════
+let bc = null;
+try { bc = new BroadcastChannel('molkky_live'); } catch(e) {}
+
+function broadcastState() {
+  const payload = JSON.stringify({ type: 'state', data: getPublicState() });
+  if (bc) bc.postMessage(payload);
+  try { localStorage.setItem('molkky_live_state', payload); } catch(e) {}
+  // Firebase Realtime Database に書き込む（クロスデバイス同期）
+  if (window._fbSet) {
+    try { window._fbSet('game', getPublicState()); } catch(e) {}
+  }
+}
+
+function getPublicState() {
+  // 全チームの投擲を時系列に並べて直近20件を取得
+  const n = S.teams.length;
+  const allThrows = [];
+  S.teams.forEach((t, ti) => {
+    t.history.forEach((h, hi) => {
+      allThrows.push({
+        teamIdx: ti,
+        points: h.points,
+        burst: !!h.burst,
+        prevScore: h.prevScore,
+        timestamp: h.timestamp,
+        turnNum: hi + 1  // そのチームの何投目か
+      });
+    });
+  });
+  allThrows.sort((a, b) => a.timestamp - b.timestamp);
+  // 全体の投擲列にターン番号を付与（全チームが1周するごとに1ターン）
+  // 各チームの何投目かを追跡してターン番号を計算
+  const teamThrowCounts = {};
+  allThrows.forEach(h => {
+    if (!teamThrowCounts[h.teamIdx]) teamThrowCounts[h.teamIdx] = 0;
+    teamThrowCounts[h.teamIdx]++;
+    h.turnNum = teamThrowCounts[h.teamIdx];
+  });
+  const recentThrows = allThrows.slice(-20);
+
+  return {
+    phase: S.phase,
+    gameName: S.settings.gameName,
+    teams: S.teams.map(t => ({
+      id: t.id,
+      name: t.name,
+      score: t.score,
+      missStreak: t.missStreak,
+      missCount: t.history.filter(h => h.points === 0).length,
+      throwCount: t.history.length,
+      isEliminated: t.isEliminated,
+      histLen: t.history.length,
+      colorIdx: t.colorIdx !== undefined ? t.colorIdx : t.id,
+      setWins: t.setWins || 0,
+      setTotalScore: t.setTotalScore || 0,
+    })),
+    currentTeamIdx: S.currentTeamIdx,
+    turnCount: S.turnCount,
+    winnerId: S.winnerId,
+    maxMiss: S.settings.maxMiss,
+    targetScore: S.settings.targetScore,
+    regN: S.settings.regN || 3,
+    regMode: S.settings.regMode || 'match',
+    recentThrows,
+    setResults: JSON.parse(JSON.stringify(S.setResults || [])),
+    updatedAt: Date.now(),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UI タブ状態
+// ═══════════════════════════════════════════════════════════════
+let _tab = 'game';
+
+// ═══════════════════════════════════════════════════════════════
+// レンダリング
+// ═══════════════════════════════════════════════════════════════
+function render() {
+  const app = document.getElementById('app');
+  app.innerHTML = buildApp();
+  bindEvents();
+  broadcastState();
+}
+
+function buildApp() {
+  const isLive = S.phase === 'playing';
+  return `
+    <div class="page-header">
+      <img src="icon.png" alt="もるまさ"/>
+      <div>
+        <h1>もるまさスコア</h1>
+        <p>モルック スコア管理 &amp; ライブ配信</p>
+      </div>
+      ${isLive ? '<span class="live-badge">● LIVE</span>' : ''}
+    </div>
+
+    <div class="tabs">
+      <div class="tab ${_tab==='game'?'active':''}" onclick="switchTab('game')">🎯 試合</div>
+      <div class="tab ${_tab==='stats'?'active':''}" onclick="switchTab('stats')">📈 成績</div>
+      <div class="tab ${_tab==='history'?'active':''}" onclick="switchTab('history')">📋 履歴</div>
+    </div>
+
+    ${_tab === 'game' ? buildGameTab() : ''}
+    ${_tab === 'stats' ? buildStatsTab() : ''}
+    ${_tab === 'history' ? buildHistoryTab() : ''}
+  `;
+}
+
+// ─── 試合タブ ───────────────────────────────────────────────────
+function buildGameTab() {
+  if (S.phase === 'setup') return buildSetup();
+  if (S.phase === 'playing') return buildPlaying();
+  if (S.phase === 'set_finished') return buildSetFinished();
+  if (S.phase === 'finished') return buildFinished();
+  return '';
+}
+
+function buildSetup() {
+  const tc = S.settings.teamCount;
+  const rm = S.settings.regMode || 'match';
+  const rn = S.settings.regN || 3;
+
+  let teamInputs = '';
+  for (let i = 0; i < tc; i++) {
+    const prevName = (S.teams[i] && S.teams[i].name) || '';
+    teamInputs += `
+      <div class="team-row">
+        <div class="team-color" style="background:${COLORS[i]};"></div>
+        <input type="text" id="team-name-${i}" placeholder="${i === 0 ? 'もるまさ' : i === 1 ? '相手' : i === 2 ? '相手２' : '相手' + (i + 1)}" value="${escHtml(prevName)}" maxlength="20"/>
+      </div>`;
+  }
+
+  // レギュレーションモード別のN選択肢
+  const matchOptions = [1,2,3,4,5,6,7,8,9,10].map(n =>
+    `<div class="reg-option ${rm==='match'&&rn===n?'selected':''}" onclick="setRegulation('match',${n})">
+      ${n}セット勝負
+      <div class="reg-radio"></div>
+    </div>`).join('');
+  const firstOptions = [2,3,4,5].map(n =>
+    `<div class="reg-option ${rm==='first'&&rn===n?'selected':''}" onclick="setRegulation('first',${n})">
+      ${n}セット先取
+      <div class="reg-radio"></div>
+    </div>`).join('');
+  const totalOptions = [2,3,4].map(n =>
+    `<div class="reg-option ${rm==='total'&&rn===n?'selected':''}" onclick="setRegulation('total',${n})">
+      ${n}セット合計
+      <div class="reg-radio"></div>
+    </div>`).join('');
+
+  const regLabel = rm==='match' ? `${rn}セット勝負` : rm==='first' ? `${rn}セット先取` : `${rn}セット合計`;
+
+  return `
+    <div class="card">
+      <div class="card-header"><span class="card-title">⚙️ 試合設定</span></div>
+      <div class="card-body">
+        <div class="form-group">
+          <label>試合名（任意）</label>
+          <input type="text" id="game-name" placeholder="例：予選Aブロック 第1試合" value="${escHtml(S.settings.gameName || (()=>{try{return localStorage.getItem('molkky_game_name')||'';}catch(e){return '';}})())}"/>
+        </div>
+        <div class="form-group">
+          <label>チーム数</label>
+          <select id="team-count-select" onchange="updateTeamCount(this.value)">
+            ${[2,3,4,5,6].map(n=>`<option value="${n}" ${tc===n?'selected':''}>${n}チーム</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>チーム名</label>
+          ${teamInputs}
+        </div>
+
+        <div class="form-group reg-group">
+          <label>レギュレーション <span style="font-weight:400;color:#1D9E75;">${regLabel}</span></label>
+          <div class="reg-tabs">
+            <div class="reg-tab ${rm==='match'?'active':''}" onclick="switchRegMode('match')">Nセット勝負</div>
+            <div class="reg-tab ${rm==='first'?'active':''}" onclick="switchRegMode('first')">Nセット先取</div>
+            <div class="reg-tab ${rm==='total'?'active':''}" onclick="switchRegMode('total')">Nセット合計</div>
+          </div>
+          <div class="reg-options" id="reg-options-list">
+            ${rm==='match' ? matchOptions : rm==='first' ? firstOptions : totalOptions}
+          </div>
+          <div style="font-size:12px;color:#6b7280;margin-top:6px;">
+            ${rm==='match' ? '指定セット数をこなして終了。セット勝利数が多い方が勝者。' :
+              rm==='first' ? '指定セット数を先に取ったチームが勝者。' :
+              '指定セット数の合計得点が多い方が勝者。'}
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;" class="form-group">
+          <div>
+            <label>目標スコア（1セット）</label>
+            <input type="number" id="target-score" value="${S.settings.targetScore}" min="10" max="100"/>
+          </div>
+          <div>
+            <label>最大ミス数</label>
+            <input type="number" id="max-miss" value="${S.settings.maxMiss}" min="1" max="5"/>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-block" onclick="onStartGame()" style="margin-top:4px;">試合開始 🎯</button>
+      </div>
+    </div>
+    ${buildOverlayInfo()}
+  `;
+}
+
+function buildSetProgress() {
+  const { regMode, regN } = S.settings;
+  if (S.teams.length === 0) return '';
+  // セット進行状況バー（チームごとに）
+  const rows = S.teams.map((t, i) => {
+    const color = COLORS[(t.colorIdx !== undefined ? t.colorIdx : i) % COLORS.length];
+    const wins = t.setWins || 0;
+    let dots = '';
+    if (regMode === 'match' || regMode === 'first') {
+      for (let d = 0; d < regN; d++) {
+        dots += `<div class="set-dot ${d < wins ? 'win' : ''}" style="${d < wins ? 'background:'+color+';border-color:'+color+';' : ''}"></div>`;
+      }
+    } else {
+      // total: セット数分のドット（消化済みは色付き）
+      const done = S.setResults.length;
+      for (let d = 0; d < regN; d++) {
+        dots += `<div class="set-dot ${d < done ? 'win' : ''}" style="${d < done ? 'background:'+color+'88;border-color:'+color+';' : ''}"></div>`;
+      }
+    }
+    const label = regMode === 'total'
+      ? `合計 ${t.setTotalScore || 0}点`
+      : `${wins}勝`;
+    return `<div style="display:flex;align-items:center;gap:6px;">
+      <span style="font-size:12px;font-weight:700;color:${color};min-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(t.name)}</span>
+      <div class="set-progress" style="margin:0;">${dots}</div>
+      <span style="font-size:12px;color:#6b7280;min-width:40px;">${label}</span>
+    </div>`;
+  }).join('');
+  const regLabel = regMode==='match' ? `${regN}セット勝負` : regMode==='first' ? `${regN}セット先取` : `${regN}セット合計`;
+  return `<div class="card" style="margin-bottom:10px;">
+    <div class="card-body" style="padding:10px 14px;">
+      <div style="font-size:12px;font-weight:700;color:#6b7280;margin-bottom:8px;">📋 ${regLabel} — セット ${S.currentSet}/${regN}</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">${rows}</div>
+    </div>
+  </div>`;
+}
+
+// 投擲順並び替え用一時配列（set_finished中のみ使用）
+let _orderDraft = null;
+let _expandedHistory = new Set(); // 展開中の試合ID
+
+function getOrderDraft() {
+  if (!_orderDraft || _orderDraft.length !== S.teams.length) {
+    const n = S.teams.length;
+    const completedSets = S.setResults.length;
+    const shift = completedSets % n;
+
+    // colorIdxを初期登録順として使用し、常に初期順からのシフトで計算
+    // 例: 初期[A(ci=0),B(ci=1),C(ci=2)]
+    //   shift=0 → [A,B,C], shift=1 → [B,C,A], shift=2 → [C,A,B]
+    const byColor = [...S.teams]
+      .map((t, i) => ({ origIdx: i, ci: t.colorIdx !== undefined ? t.colorIdx : i }))
+      .sort((a, b) => a.ci - b.ci);
+
+    _orderDraft = Array.from({length: n}, (_, i) => byColor[(i + shift) % n].origIdx);
+  }
+  return _orderDraft;
+}
+
+function moveOrder(from, to) {
+  const draft = getOrderDraft();
+  const item = draft.splice(from, 1)[0];
+  draft.splice(to, 0, item);
+  _orderDraft = draft;
+  render();
+}
+
+function buildSetFinished() {
+  const { regMode, regN } = S.settings;
+  const setWinner = S.teams.find(t => t.id === S.lastSetWinnerId);
+  const nextSetNum = S.currentSet + 1;
+  const regLabel = regMode==='match' ? `${regN}セット勝負` : regMode==='first' ? `${regN}セット先取` : `${regN}セット合計`;
+  const draft = getOrderDraft();
+
+  // セット結果行
+  const rows = S.teams.map((t, i) => {
+    const tColor = COLORS[(t.colorIdx !== undefined ? t.colorIdx : i) % COLORS.length];
+    const lastResult = S.setResults[S.setResults.length - 1];
+    const lastScore = lastResult ? lastResult.scores.find(s => s.teamId === t.id) : null;
+    const isW = t.id === S.lastSetWinnerId;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0f0f0;">
+      <div style="width:10px;height:10px;border-radius:50%;background:${tColor};flex-shrink:0;"></div>
+      <div style="flex:1;font-weight:700;color:${tColor};">${escHtml(t.name)}</div>
+      ${isW ? '<span style="background:#E1F5EE;color:#1D9E75;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;">セット勝利</span>' : ''}
+      <div style="font-size:22px;font-weight:900;color:${tColor};">${lastScore ? lastScore.score : t.score}</div>
+    </div>`;
+  }).join('');
+
+  // 投擲順並び替えUI
+  const orderRows = draft.map((teamIdx, pos) => {
+    const t = S.teams[teamIdx];
+    const color = COLORS[(t.colorIdx !== undefined ? t.colorIdx : teamIdx) % COLORS.length];
+    const isFirst = pos === 0;
+    const isLast = pos === draft.length - 1;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border-bottom:1px solid #f0f0f0;">
+      <div style="width:24px;height:24px;border-radius:50%;background:${color};color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${pos+1}</div>
+      <div style="flex:1;font-weight:700;color:${color};">${escHtml(t.name)}</div>
+      <div style="display:flex;gap:4px;">
+        <button class="btn btn-sm btn-gray" onclick="moveOrder(${pos},${pos-1})" ${isFirst?'disabled':''} style="padding:4px 10px;font-size:16px;line-height:1;">↑</button>
+        <button class="btn btn-sm btn-gray" onclick="moveOrder(${pos},${pos+1})" ${isLast?'disabled':''} style="padding:4px 10px;font-size:16px;line-height:1;">↓</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `
+    ${buildSetProgress()}
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🏅 セット ${S.currentSet} 終了</span>
+        <span style="margin-left:auto;font-size:12px;color:#6b7280;">${regLabel}</span>
+      </div>
+      <div class="card-body">
+        <div style="text-align:center;padding:10px 0 14px;">
+          <div style="font-size:13px;color:#6b7280;margin-bottom:4px;">セット${S.currentSet}勝者</div>
+          <div style="font-size:24px;font-weight:900;color:${setWinner ? COLORS[(setWinner.colorIdx !== undefined ? setWinner.colorIdx : S.teams.indexOf(setWinner))%COLORS.length] : '#6b7280'};">🏅 ${setWinner ? escHtml(setWinner.name) : '引き剆け'}</div>
+        </div>
+        <div style="border-top:1px solid #f0f0f0;padding-top:10px;">${rows}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🔀 セット${nextSetNum}の投擲順</span>
+      </div>
+      <div style="border:1.5px solid #e5e7eb;border-radius:10px;overflow:hidden;margin:0 16px 14px;">
+        ${orderRows}
+      </div>
+      <div class="card-body" style="padding-top:0;">
+        <button class="btn btn-primary btn-block" onclick="nextSet()">セット${nextSetNum}へ進む ▶</button>
+        <button class="btn btn-gray btn-block" onclick="confirmReset()" style="margin-top:8px;">試合リセット</button>
+      </div>
+    </div>
+    ${buildOverlayInfo()}
+  `;
+}
+
+function buildPlaying() {
+  const cur = S.teams[S.currentTeamIdx];
+  if (!cur) return '';
+
+  // スコアカード
+  let scoreCards = '<div class="score-board">';
+  S.teams.forEach((t, i) => {
+    const ci = (t.colorIdx !== undefined ? t.colorIdx : i);
+    const tColor = COLORS[ci % COLORS.length];
+    const tLightColor = LIGHT_COLORS[ci % LIGHT_COLORS.length];
+    const isActive = i === S.currentTeamIdx && !t.isEliminated;
+    const pct = Math.min(100, Math.round(t.score / S.settings.targetScore * 100));
+    const missDots = Array.from({length: S.settings.maxMiss}, (_, mi) =>
+      `<div class="miss-dot ${mi < t.missStreak ? 'active' : ''}"></div>`
+    ).join('');
+    const setWins = t.setWins || 0;
+    const setTotalScore = t.setTotalScore || 0;
+    const hasSets = S.setResults && S.setResults.length > 0;
+    const totalSetsNeeded = S.settings.regN || 3;
+    // ドット式：勝利済み=実色、未勝利=空白
+    const setDots = hasSets ? Array.from({length: totalSetsNeeded}, (_, di) =>
+      di < setWins
+        ? `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${tColor};margin:0 1px;"></span>`
+        : `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:transparent;border:1.5px solid ${tColor};margin:0 1px;opacity:0.4;"></span>`
+    ).join('') : '';
+    scoreCards += `
+      <div class="score-card ${isActive?'active':''} ${t.isEliminated?'eliminated':''}"
+           style="background:${tLightColor};border-color:${isActive?tColor:'transparent'};">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div class="team-name" style="color:${tColor};">${escHtml(t.name)}</div>
+          ${hasSets ? `<div style="display:flex;align-items:center;gap:4px;">
+            <span style="display:flex;align-items:center;">${setDots}</span>
+            <span style="font-size:10px;color:#6b7280;white-space:nowrap;">計${setTotalScore}</span>
+          </div>` : ''}
+        </div>
+        <div class="score-num" style="color:${tColor};">${t.isEliminated?'❌':t.score}</div>
+        <div style="height:4px;background:#e5e7eb;border-radius:2px;margin:6px 0;">
+          <div style="height:100%;background:${tColor};border-radius:2px;width:${pct}%;transition:width 0.3s;"></div>
+        </div>
+        <div class="miss-dots">${missDots}</div>
+        <div class="score-sub">${t.history.length}投 / ${t.missStreak}ミス</div>
+      </div>`;
+  });
+  scoreCards += '</div>';
+
+  // 投擲履歴：ターン×チームの横長テーブル形式
+  function makeThrowChip(h, color, teamIdx, throwIdx) {
+    const intendedBtn = `<span onclick="toggleIntended(${teamIdx},${throwIdx})" style="cursor:pointer;font-size:9px;margin-left:1px;opacity:0.7;">${h.intended !== false ? '✅' : '❌'}</span>`;
+    if (h.points === 0) return `<span style="display:inline-flex;align-items:center;padding:2px 7px;border-radius:20px;font-size:11px;font-weight:800;background:#FEE2E2;color:#DC2626;">ミス${intendedBtn}</span>`;
+    if (h.burst) return `<span style="display:inline-flex;align-items:center;padding:2px 7px;border-radius:20px;font-size:11px;font-weight:800;background:#FEF3C7;color:#B45309;">${h.points}→25${intendedBtn}</span>`;
+    return `<span style="display:inline-flex;align-items:center;padding:2px 7px;border-radius:20px;font-size:11px;font-weight:800;background:${color}18;color:${color};border:1.5px solid ${color}44;">${h.points}${intendedBtn}</span>`;
+  }
+
+  // 全チームの投擲を時系列に並べてターン番号を付与
+  const allThrowsForTable = [];
+  const throwIdxByTeam = {};
+  S.teams.forEach((t, ti) => {
+    throwIdxByTeam[ti] = 0;
+    t.history.forEach(h => {
+      allThrowsForTable.push({ teamIdx: ti, h, throwIdx: throwIdxByTeam[ti]++ });
+    });
+  });
+  allThrowsForTable.sort((a, b) => a.h.timestamp - b.h.timestamp);
+
+  // ターン番号を割り当て
+  const turnCountByTeam2 = {};
+  allThrowsForTable.forEach(item => {
+    if (!turnCountByTeam2[item.teamIdx]) turnCountByTeam2[item.teamIdx] = 0;
+    turnCountByTeam2[item.teamIdx]++;
+    item.turnNum = turnCountByTeam2[item.teamIdx];
+  });
+
+  // turnMap: { turnNum -> { teamIdx -> item } }
+  const turnMapGame = {};
+  allThrowsForTable.forEach(item => {
+    if (!turnMapGame[item.turnNum]) turnMapGame[item.turnNum] = {};
+    turnMapGame[item.turnNum][item.teamIdx] = item;
+  });
+  const allTurnNums = Object.keys(turnMapGame).map(Number).sort((a,b) => a-b);
+  const visibleTurnNums = allTurnNums.slice(-8); // 直近8ターン分表示
+
+  // チームごとに1行、ターンを横に並べる転置レイアウト
+  const tableTeamRows = S.teams.map((t, ti) => {
+    const ci = t.colorIdx !== undefined ? t.colorIdx : ti;
+    const color = COLORS[ci % COLORS.length];
+    const isActive = ti === S.currentTeamIdx && !t.isEliminated;
+    const cells = visibleTurnNums.map(turnNum => {
+      const item = turnMapGame[turnNum] && turnMapGame[turnNum][ti];
+      if (!item) return `<td style="text-align:center;padding:3px 4px;"><span style="color:#d1d5db;font-size:10px;">—</span></td>`;
+      return `<td style="text-align:center;padding:3px 4px;">${makeThrowChip(item.h, color, ti, item.throwIdx)}</td>`;
+    }).join('');
+    return `<tr style="border-bottom:1px solid #f8fafc;">
+      <td style="padding:3px 6px 3px 0;font-size:11px;font-weight:800;color:${color};white-space:nowrap;${isActive?'text-decoration:underline;':''}">${escHtml(t.name)}</td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  // ターン番号ヘッダー
+  const tableTurnHeaders = visibleTurnNums.map(n =>
+    `<th style="text-align:center;padding:3px 4px;font-size:10px;font-weight:700;color:#9ca3af;">${n}</th>`
+  ).join('');
+
+  const throwTableHtml = allTurnNums.length > 0 ? `
+    <div style="margin-top:8px;overflow-x:auto;">
+      <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">直近の投擲</div>
+      <table style="border-collapse:collapse;">
+        <thead><tr style="background:#f8fafc;">
+          <th style="padding:3px 6px 3px 0;font-size:10px;color:#9ca3af;font-weight:600;text-align:left;">投</th>
+          ${tableTurnHeaders}
+        </tr></thead>
+        <tbody>${tableTeamRows}</tbody>
+      </table>
+    </div>` : '';
+
+  // ピングリッド
+  const pins = [1,2,3,4,5,6,7,8,9,10,11,12];
+  const pinBtns = pins.map(n =>
+    `<button class="pin-btn" onclick="onThrow(${n})">${n}</button>`
+  ).join('');
+
+  return `
+    ${buildSetProgress()}
+    ${scoreCards}
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🎯 ${escHtml(cur.name)} の番</span>
+        <span style="margin-left:auto;font-size:13px;color:#6b7280;">ターン ${Math.floor(S.turnCount / Math.max(1, S.teams.filter(t=>!t.isEliminated).length)) + 1}</span>
+      </div>
+      <div class="card-body">
+        <div class="pin-grid">
+          ${pinBtns}
+          <button class="pin-btn miss" onclick="onThrow(0)" style="grid-column:span 2;aspect-ratio:unset;padding:8px 4px;font-size:14px;">ミス 0点</button>
+          <button class="pin-btn" onclick="onUndo()" style="background:#f3f4f6;color:#374151;font-size:13px;grid-column:span 2;aspect-ratio:unset;padding:8px 4px;">↩ 取り消し</button>
+        </div>
+        ${throwTableHtml}
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <button class="btn btn-gray btn-sm" onclick="confirmReset()">🔄 試合リセット</button>
+      <button class="btn btn-red btn-sm" onclick="confirmEndGame()">🏁 試合終了</button>
+    </div>
+
+    ${buildOverlayInfo()}
+  `;
+}
+
+function buildFinished() {
+  const winner = S.teams.find(t => t.id === S.winnerId);
+  const sorted = [...S.teams].sort((a,b) => {
+    if (a.isEliminated !== b.isEliminated) return a.isEliminated ? 1 : -1;
+    return b.score - a.score;
+  });
+
+  const rows = sorted.map((t, i) => {
+    const isWinner = t.id === S.winnerId;
+    const totalThrows = t.history.length;
+    const intendedCount = t.history.filter(h => h.intended !== false).length;
+    const accuracy = totalThrows > 0 ? Math.round(intendedCount / totalThrows * 100) : '-';
+    return `<tr class="${isWinner?'winner':''} ${t.isEliminated?'elim':''}">
+      <td>${isWinner?'🏆':i===1?'🥈':i===2?'🥉':i+1}</td>
+      <td style="text-align:left;font-weight:600;">${escHtml(t.name)}</td>
+      <td>${totalThrows}投</td>
+      <td style="font-weight:800;font-size:16px;">${t.score}</td>
+      <td style="font-size:13px;color:#6b7280;">${accuracy === '-' ? '-' : accuracy + '%'}</td>
+    </tr>`;
+  }).join('');
+
+  const dur = S.finishedAt && S.startedAt
+    ? Math.round((S.finishedAt - S.startedAt) / 60000) + '分'
+    : '';
+
+    // セットごとの分析セクション
+  const setAnalysis = (S.setResults || []).map((sr, si) => {
+    const scores = sr.scores || [];
+    const teamCount = scores.length;
+
+    // 各チームの分析データ
+    const teamStats = scores.map(sc => {
+      const t = S.teams.find(t2 => t2.id === sc.teamId);
+      const ci = t ? (t.colorIdx !== undefined ? t.colorIdx : t.id) : si % COLORS.length;
+      const color = COLORS[ci % COLORS.length];
+      const throws = sc.throws || [];
+      const total = throws.length;
+      const intendedCount = throws.filter(h => h.intended !== false).length;
+      const missCount = throws.filter(h => h.points === 0).length;
+      const intendedRate = total > 0 ? Math.round(intendedCount / total * 100) : null;
+      const missAvoidRate = total > 0 ? Math.round((total - missCount) / total * 100) : null;
+      // ターン数：投擲数とチーム数から計算
+      const turnCount = total; // 各チームの投擲数 = そのチームのターン数
+      // 試合時間：先頭投擲のタイムスタンプ〜最後投擲のタイムスタンプ
+      const allTimestamps = throws.map(h => h.timestamp).filter(Boolean);
+      const setDur = allTimestamps.length >= 2
+        ? Math.round((Math.max(...allTimestamps) - Math.min(...allTimestamps)) / 1000)
+        : null;
+
+      // 投擲チップ行
+      const chipRow = throws.map((h, hi) => {
+        const intendedMark = h.intended !== false ? '✅' : '❌';
+        let chip;
+        if (h.points === 0) chip = `<span style="display:inline-flex;align-items:center;gap:1px;padding:2px 6px;border-radius:16px;font-size:10px;font-weight:800;background:#FEE2E2;color:#DC2626;">ミス ${intendedMark}</span>`;
+        else if (h.burst) chip = `<span style="display:inline-flex;align-items:center;gap:1px;padding:2px 6px;border-radius:16px;font-size:10px;font-weight:800;background:#FEF3C7;color:#B45309;">${h.points}→25 ${intendedMark}</span>`;
+        else chip = `<span style="display:inline-flex;align-items:center;gap:1px;padding:2px 6px;border-radius:16px;font-size:10px;font-weight:800;background:${color}18;color:${color};border:1px solid ${color}44;">${h.points} ${intendedMark}</span>`;
+        return chip;
+      }).join(' ');
+
+      return { sc, t, color, total, intendedRate, missAvoidRate, turnCount, chipRow, setDur };
+    });
+
+    // セット全体の時間：全チームの先頭投擲〜最後投擲
+    const allTs = scores.flatMap(sc => (sc.throws || []).map(h => h.timestamp).filter(Boolean));
+    const setDurTotal = allTs.length >= 2
+      ? (() => { const s = Math.round((Math.max(...allTs) - Math.min(...allTs)) / 1000); return s >= 60 ? `${Math.floor(s/60)}分${s%60}秒` : `${s}秒`; })()
+      : null;
+
+    // 最大ターン数（全チーム中最大）
+    const maxTurns = Math.max(...teamStats.map(ts => ts.turnCount), 0);
+
+    // チーム統計行
+    const statRows = teamStats.map(ts => {
+      const isSetW = sr.winnerId === ts.sc.teamId;
+      return `<tr style="border-bottom:1px solid #f0f4f8;">
+        <td style="padding:6px 8px;">
+          <span style="display:inline-flex;align-items:center;gap:4px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:${ts.color};display:inline-block;"></span>
+            <span style="font-weight:700;font-size:12px;color:${ts.color};">${escHtml(ts.sc.teamName || '')}</span>
+            ${isSetW ? '<span style="font-size:9px;background:#FFF0E8;color:#FF5500;padding:1px 5px;border-radius:8px;font-weight:800;">勝</span>' : ''}
+          </span>
+        </td>
+        <td style="text-align:center;font-size:12px;">${ts.total}投</td>
+        <td style="text-align:center;font-size:12px;">${ts.intendedRate !== null ? ts.intendedRate + '%' : '-'}</td>
+        <td style="text-align:center;font-size:12px;">${ts.missAvoidRate !== null ? ts.missAvoidRate + '%' : '-'}</td>
+        <td style="text-align:center;font-size:12px;">${ts.sc.score}点</td>
+      </tr>`;
+    }).join('');
+
+    // 投擲チップ詳細行
+    const chipRows = teamStats.map(ts => `
+      <div style="margin-bottom:6px;">
+        <div style="font-size:10px;font-weight:800;color:${ts.color};margin-bottom:3px;">${escHtml(ts.sc.teamName || '')}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px;">${ts.chipRow}</div>
+      </div>`).join('');
+
+    return `
+      <div class="card" style="margin-bottom:10px;">
+        <div class="card-header" style="padding:10px 12px;">
+          <span class="card-title">セット ${si + 1} 分析</span>
+          <span style="margin-left:auto;font-size:11px;color:#6b7280;">${setDurTotal ? '⏱ ' + setDurTotal : ''} · ${maxTurns}ターン</span>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="background:#f8fafc;">
+              <th style="padding:5px 8px;font-size:11px;text-align:left;color:#6b7280;">チーム</th>
+              <th style="text-align:center;font-size:11px;color:#6b7280;">投擲</th>
+              <th style="text-align:center;font-size:11px;color:#6b7280;">狙い通り</th>
+              <th style="text-align:center;font-size:11px;color:#6b7280;">ミス回避</th>
+              <th style="text-align:center;font-size:11px;color:#6b7280;">得点</th>
+            </tr></thead>
+            <tbody>${statRows}</tbody>
+          </table>
+          <div style="padding:10px 12px;border-top:1px solid #f0f4f8;">
+            <div style="font-size:11px;font-weight:700;color:#6b7280;margin-bottom:6px;">投擲詳細</div>
+            ${chipRows}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="result-banner">
+      <div class="trophy">🏆</div>
+      <div style="font-size:13px;opacity:0.8;margin-bottom:4px;">勝者</div>
+      <div class="winner-name">${winner ? escHtml(winner.name) : '引き分け'}</div>
+      ${winner ? `<div class="winner-score">${winner.score}点</div>` : ''}
+      ${dur ? `<div style="font-size:12px;opacity:0.7;margin-top:6px;">⏱ ${dur}</div>` : ''}
+    </div>
+    <div class="card">
+      <div class="card-header"><span class="card-title">最終スコア</span></div>
+      <div class="card-body" style="padding:0;">
+        <table class="hist-table">
+          <thead><tr><th>順位</th><th>チーム</th><th>投擲数</th><th>得点</th><th>狙い通り</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+    ${setAnalysis}
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <button class="btn btn-primary" style="flex:1;" onclick="rematch()">同じメンバーで再戦</button>
+      <button class="btn btn-gray" style="flex:1;" onclick="resetGame()">新しい試合</button>
+    </div>
+    ${buildOverlayInfo()}
+  `;
+}
+
+// ─── スコアボードタブ ────────────────────────────────────────────
+function buildScoreboardTab() {
+  if (S.phase === 'setup' && S.teams.length === 0) {
+    return `<div style="text-align:center;padding:40px 20px;color:#6b7280;">
+      <div style="font-size:48px;margin-bottom:12px;">📊</div>
+      <div style="font-size:16px;font-weight:600;">試合を開始するとスコアが表示されます</div>
+    </div>`;
+  }
+
+  const teams = S.teams.length > 0 ? S.teams : [];
+  const sorted = [...teams].sort((a,b) => {
+    if (a.isEliminated !== b.isEliminated) return a.isEliminated ? 1 : -1;
+    return b.score - a.score;
+  });
+
+  let rows = sorted.map((t, i) => {
+    const isActive = t.id === S.teams[S.currentTeamIdx]?.id && S.phase === 'playing' && !t.isEliminated;
+    const pct = Math.min(100, Math.round(t.score / S.settings.targetScore * 100));
+    const ci = (t.colorIdx !== undefined ? t.colorIdx : teams.indexOf(t));
+    return `
+      <div style="padding:14px 16px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;gap:12px;${isActive?'background:#f0fdf8;':''}${t.isEliminated?'opacity:0.4;':''}">
+        <div style="font-size:22px;width:32px;text-align:center;">${i===0&&!t.isEliminated?'🥇':i===1&&!t.isEliminated?'🥈':i===2&&!t.isEliminated?'🥉':i+1}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:700;font-size:15px;color:${COLORS[ci%COLORS.length]};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(t.name)}</div>
+          <div style="height:6px;background:#e5e7eb;border-radius:3px;margin-top:5px;">
+            <div style="height:100%;background:${COLORS[ci%COLORS.length]};border-radius:3px;width:${pct}%;transition:width 0.4s;"></div>
+          </div>
+          <div style="font-size:11px;color:#6b7280;margin-top:3px;">${t.history.length}投 / ミス${t.missStreak}/${S.settings.maxMiss}</div>
+        </div>
+        <div style="font-size:42px;font-weight:900;color:${COLORS[ci%COLORS.length]};min-width:60px;text-align:right;">${t.isEliminated?'❌':t.score}</div>
+      </div>`;
+  }).join('');
+
+  const phase = S.phase === 'playing' ? `<span class="live-badge">● LIVE</span>` :
+                S.phase === 'finished' ? `<span style="background:#6b7280;color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px;">終了</span>` : '';
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">📊 ${escHtml(S.settings.gameName || '試合')}</span>
+        <span style="margin-left:auto;">${phase}</span>
+      </div>
+      ${rows || '<div style="padding:20px;text-align:center;color:#6b7280;">チームなし</div>'}
+    </div>
+    ${S.phase === 'playing' ? `<div style="text-align:center;font-size:13px;color:#6b7280;margin-bottom:8px;">ターン ${Math.floor(S.turnCount / Math.max(1, S.teams.filter(t=>!t.isEliminated).length)) + 1} / 現在: ${escHtml(S.teams[S.currentTeamIdx]?.name||'')}</div>` : ''}
+  `;
+}
+
+// ─── 履歴タブ ────────────────────────────────────────────────────
+function toggleHistoryDetail(gameId) {
+  if (_expandedHistory.has(gameId)) {
+    _expandedHistory.delete(gameId);
+  } else {
+    _expandedHistory.add(gameId);
+  }
+  render();
+}
+
+function buildHistoryTab() {
+  if (S.history.length === 0) {
+    return `<div style="text-align:center;padding:40px 20px;color:#6b7280;">
+      <div style="font-size:48px;margin-bottom:12px;">📋</div>
+      <div style="font-size:16px;font-weight:600;">試合が終了すると履歴が表示されます</div>
+    </div>`;
+  }
+
+  const cards = S.history.map((g, gi) => {
+    const gameId = g.id || gi;
+    const winner = g.teams.find(t => t.id === g.winnerId);
+    const isExpanded = _expandedHistory.has(gameId);
+    const dur = g.finishedAt && g.startedAt
+      ? Math.round((g.finishedAt - g.startedAt) / 60000) + '分'
+      : '';
+    const dt = new Date(g.startedAt);
+    const dtStr = `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours()}:${String(dt.getMinutes()).padStart(2,'0')}`;
+    const setResults = g.setResults || [];
+    const totalSets = setResults.length || 1;
+
+    // レギュレーションラベル
+    const gs = g.settings || {};
+    const regLabel = gs.regMode === 'first' ? `${gs.regN}セット先取` :
+                     gs.regMode === 'total' ? `${gs.regN}セット合計` :
+                     gs.regN ? `${gs.regN}セット勝負` : '';
+
+    // チームカラーマップ（colorIdx基準）
+    const teamColorMap = {};
+    g.teams.forEach((t, i) => {
+      const ci = t.colorIdx !== undefined ? t.colorIdx : i;
+      teamColorMap[t.id] = COLORS[ci % COLORS.length];
+    });
+
+    // セット勝利数を集計
+    const setWinsMap = {};
+    g.teams.forEach(t => { setWinsMap[t.id] = 0; });
+    setResults.forEach(sr => { if (sr.winnerId != null) setWinsMap[sr.winnerId] = (setWinsMap[sr.winnerId] || 0) + 1; });
+
+    // ── サマリー行（チームごと：勝利セット数 + 各セット得点） ──
+    const summaryRows = g.teams.map((t, ti) => {
+      const isW = t.id === g.winnerId;
+      const color = teamColorMap[t.id];
+      const wins = setWinsMap[t.id] || 0;
+
+      // 各セットのスコア
+      const setScoreCells = setResults.map((sr, si) => {
+        const sc = sr.scores ? sr.scores.find(s => s.teamId === t.id) : null;
+        const score = sc ? sc.score : '-';
+        const isSetWinner = sr.winnerId === t.id;
+        return `<td style="text-align:center;font-size:12px;font-weight:${isSetWinner?'800':'500'};color:${isSetWinner?color:'#374151'};">
+          ${isSetWinner ? '★' : ''}${score}
+        </td>`;
+      }).join('');
+
+      return `<tr style="border-bottom:1px solid #f0f4f8;">
+        <td style="padding:8px 10px;">
+          <span style="display:inline-flex;align-items:center;gap:5px;">
+            <span style="width:9px;height:9px;border-radius:50%;background:${color};display:inline-block;"></span>
+            <span style="font-weight:700;font-size:13px;color:${color};">${escHtml(t.name)}</span>
+            ${isW ? '<span style="font-size:10px;background:#FFF0E8;color:#FF5500;padding:1px 6px;border-radius:10px;font-weight:800;">勝者</span>' : ''}
+          </span>
+        </td>
+        <td style="text-align:center;padding:8px 6px;font-size:14px;font-weight:800;color:${color};">${wins}勝</td>
+        ${setScoreCells}
+      </tr>`;
+    }).join('');
+
+    const setHeaders = setResults.map((_, si) =>
+      `<th style="text-align:center;font-size:11px;color:#6b7280;padding:5px 6px;">S${si+1}</th>`
+    ).join('');
+
+    // ── 詳細（投擲チップ）セクション ──
+    let detailHtml = '';
+    if (isExpanded && setResults.length > 0) {
+      detailHtml = setResults.map((sr, si) => {
+        const scores = sr.scores || [];
+        // 各チームの投擲配列を取得
+        const teamThrows = scores.map(sc => ({
+          sc,
+          t: g.teams.find(t2 => t2.id === sc.teamId),
+          throws: sc.throws || [],
+          color: (g.teams.find(t2 => t2.id === sc.teamId)
+            ? teamColorMap[g.teams.find(t2 => t2.id === sc.teamId).id]
+            : '#888'),
+          name: sc.teamName || (g.teams.find(t2 => t2.id === sc.teamId)
+            ? g.teams.find(t2 => t2.id === sc.teamId).name
+            : `チーム${sc.teamId+1}`)
+        }));
+
+        // 最大投擲数
+        const maxThrows = Math.max(...teamThrows.map(tt => tt.throws.length), 0);
+
+        // ヘッダー行：チーム名＋合計点
+        const headerCols = teamThrows.map(tt => {
+          const isSetW = sr.winnerId === tt.sc.teamId;
+          return `<th style="text-align:center;padding:5px 6px;font-size:11px;font-weight:800;color:${tt.color};">
+            ${isSetW ? '★' : ''}${escHtml(tt.name)}<br>
+            <span style="font-size:10px;font-weight:500;color:#6b7280;">${tt.sc.score}点</span>
+          </th>`;
+        }).join('');
+
+        // ターン行
+        const turnRows = Array.from({length: maxThrows}, (_, ti) => {
+          const cells = teamThrows.map(tt => {
+            const h = tt.throws[ti];
+            if (!h) return `<td style="text-align:center;padding:5px 6px;"><span style="color:#d1d5db;font-size:11px;">—</span></td>`;
+            let chip;
+            if (h.points === 0) {
+              chip = `<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:800;background:#FEE2E2;color:#DC2626;">ミス</span>`;
+            } else if (h.burst) {
+              chip = `<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:800;background:#FEF3C7;color:#B45309;">${h.points}→25</span>`;
+            } else {
+              chip = `<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:800;background:${tt.color}18;color:${tt.color};border:1.5px solid ${tt.color}44;">${h.points}</span>`;
+            }
+            return `<td style="text-align:center;padding:4px 6px;">${chip}</td>`;
+          }).join('');
+          return `<tr style="border-bottom:1px solid #f8fafc;">
+            <td style="text-align:center;padding:4px 6px;font-size:11px;color:#9ca3af;font-weight:600;">${ti+1}</td>
+            ${cells}
+          </tr>`;
+        }).join('');
+
+        return `<div style="padding:10px 12px;border-top:1px solid #f0f4f8;overflow-x:auto;">
+          <div style="font-size:11px;font-weight:800;color:#6b7280;margin-bottom:6px;">セット ${si+1}</div>
+          <table style="width:100%;border-collapse:collapse;min-width:200px;">
+            <thead><tr style="background:#f8fafc;">
+              <th style="text-align:center;padding:5px 6px;font-size:11px;color:#9ca3af;font-weight:600;">投</th>
+              ${headerCols}
+            </tr></thead>
+            <tbody>${turnRows || '<tr><td colspan="99" style="text-align:center;color:#9ca3af;font-size:11px;padding:8px;">投擲データなし</td></tr>'}</tbody>
+          </table>
+        </div>`;
+      }).join('');
+    }
+
+    return `
+      <div class="card" style="margin-bottom:10px;">
+        <div class="card-header" style="padding:10px 12px;">
+          <div style="flex:1;">
+            <div style="font-weight:700;font-size:14px;">${escHtml(g.gameName || `試合 #${S.history.length - gi}`)}</div>
+            <div style="font-size:11px;color:#6b7280;margin-top:2px;">${dtStr}${dur ? ' · ' + dur : ''} · ${totalSets}セット${regLabel ? ' · <span style="color:#FF5500;font-weight:700;">' + regLabel + '</span>' : ''}</div>
+          </div>
+          ${winner ? `<div style="font-size:12px;font-weight:700;color:#FF5500;">🏆 ${escHtml(winner.name)}</div>` : ''}
+        </div>
+        <div style="padding:0;">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="background:#f8fafc;">
+              <th style="text-align:left;padding:5px 10px;font-size:11px;color:#6b7280;">チーム</th>
+              <th style="text-align:center;padding:5px 6px;font-size:11px;color:#6b7280;">勝利</th>
+              ${setHeaders}
+            </tr></thead>
+            <tbody>${summaryRows}</tbody>
+          </table>
+        </div>
+        ${detailHtml}
+        <div style="padding:8px 12px;border-top:1px solid #f0f4f8;text-align:center;">
+          <button class="btn btn-gray btn-xs" onclick="toggleHistoryDetail(${gameId})">
+            ${isExpanded ? '▲ 詳細を閉じる' : '▼ 投擲詳細を見る'}
+          </button>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+      <button class="btn btn-gray btn-xs" onclick="confirmClearHistory()">履歴を削除</button>
+    </div>
+    ${cards}
+  `;
+}
+
+// ─── OBSオーバーレイ情報 ─────────────────────────────────────────
+function buildOverlayInfo() {
+  const overlayUrl = location.origin + location.pathname.replace('index.html','') + 'overlay.html';
+  return `
+    <div class="overlay-box">
+      <div style="font-weight:700;margin-bottom:4px;">📺 OBSオーバーレイ</div>
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:6px;">OBSの「ブラウザソース」にこのURLを追加するとスコアがリアルタイムで配信画面に表示されます</div>
+      <div class="url-row">
+        <input type="text" id="overlay-url-input" readonly value="${overlayUrl}" style="flex:1;"/>
+        <button class="copy-btn" id="copy-overlay-btn" onclick="copyOverlayUrl()">コピー</button>
+      </div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px;">推奨サイズ: 幅 420px / 背景透過: ON</div>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// イベントバインド
+// ═══════════════════════════════════════════════════════════════
+function bindEvents() {}
+
+function switchTab(tab) {
+  _tab = tab;
+  render();
+}
+
+function updateTeamCount(val) {
+  S.settings.teamCount = parseInt(val);
+  // 既存の名前を保持
+  const names = [];
+  for (let i = 0; i < S.settings.teamCount; i++) {
+    const el = document.getElementById(`team-name-${i}`);
+    names.push(el ? el.value : (S.teams[i] ? S.teams[i].name : ''));
+  }
+  S.teams = names.map((n, i) => S.teams[i] ? { ...S.teams[i], name: n } : { id: i, name: n, score: 0, missStreak: 0, history: [], isEliminated: false });
+  render();
+}
+
+function onStartGame() {
+  const tc = document.getElementById('target-score');
+  const mc = document.getElementById('max-miss');
+  if (tc) S.settings.targetScore = Math.max(10, parseInt(tc.value) || 50);
+  if (mc) S.settings.maxMiss = Math.max(1, parseInt(mc.value) || 3);
+  startGame();
+}
+
+function switchRegMode(mode) {
+  // モード切替時にデフォルトNを設定
+  const defaults = { match: 3, first: 3, total: 3 };
+  S.settings.regMode = mode;
+  S.settings.regN = defaults[mode];
+  render();
+}
+
+function setRegulation(mode, n) {
+  S.settings.regMode = mode;
+  S.settings.regN = n;
+  render();
+}
+
+function onThrow(points) {
+  applyThrow(S.currentTeamIdx, points);
+}
+
+function onUndo() {
+  undoLastThrow();
+}
+
+function toggleIntended(teamIdx, histIdx) {
+  const team = S.teams[teamIdx];
+  if (!team || !team.history[histIdx]) return;
+  team.history[histIdx].intended = !(team.history[histIdx].intended !== false);
+  saveState();
+  render();
+}
+
+function confirmReset() {
+  showConfirm('試合をリセットしますか？\n現在の試合データは失われます。', () => {
+    resetGame();
+  });
+}
+
+function confirmEndGame() {
+  showConfirm('試合を強制終了しますか？', () => {
+    endGame(null);
+  });
+}
+
+function confirmClearHistory() {
+  showConfirm('履歴をすべて削除しますか？', () => {
+    S.history = [];
+    saveState();
+    render();
+  });
+}
+
+function copyOverlayUrl() {
+  const input = document.getElementById('overlay-url-input');
+  if (!input) return;
+  navigator.clipboard.writeText(input.value).then(() => {
+    const btn = document.getElementById('copy-overlay-btn');
+    if (btn) {
+      btn.textContent = '✓ コピー済';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'コピー'; btn.classList.remove('copied'); }, 2000);
+    }
+  }).catch(() => {
+    input.select();
+    document.execCommand('copy');
+  });
+}
+
+// ─── モーダル ────────────────────────────────────────────────────
+let _confirmCallback = null;
+
+function showConfirm(msg, cb) {
+  document.getElementById('modal-confirm-body').textContent = msg;
+  _confirmCallback = cb;
+  document.getElementById('modal-confirm').classList.add('open');
+  document.getElementById('modal-confirm-ok').onclick = () => {
+    closeModal('modal-confirm');
+    if (_confirmCallback) _confirmCallback();
+  };
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+// ─── ユーティリティ ──────────────────────────────────────────────
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 初期化
+// ═══════════════════════════════════════════════════════════════
+render();
+</script>
+</body>
+</html>
