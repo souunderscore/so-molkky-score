@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>もるまさスコア</title>
+<title>SÖスコア</title>
 <link rel="icon" href="icon.png"/>
 <!-- Firebase SDK (compat版: StreamLabs等の旧Chromiumでも動作) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -207,7 +207,7 @@ const LIGHT_COLORS = ['#FFF0E8','#E8F6FC','#F5EEF8','#E9F7EF','#FEF5E7','#FDEDEC
 // ═══════════════════════════════════════════════════════════════
 // 状態管理
 // ═══════════════════════════════════════════════════════════════
-const STORAGE_KEY = 'molkky_masa_v2';
+const STORAGE_KEY = 'molkky_so_v2';
 
 let S = loadState() || {
   phase: 'setup',          // setup | playing | set_finished | finished
@@ -247,7 +247,7 @@ function loadState() {
 function initTeams(names, keepSetStats) {
   return names.map((name, i) => ({
     id: i,
-    name: name || (i === 0 ? 'もるまさ' : i === 1 ? '相手' : i === 2 ? '相手２' : `相手${i + 1}`),
+    name: name || (i === 0 ? 'SÖ' : i === 1 ? '相手' : i === 2 ? '相手２' : `相手${i + 1}`),
     colorIdx: i, // 固有カラーインデックス（常に初期位置で固定）
     score: 0,
     missStreak: 0,
@@ -472,7 +472,7 @@ function startGame() {
   const names = [];
   for (let i = 0; i < S.settings.teamCount; i++) {
     const el = document.getElementById(`team-name-${i}`);
-        names.push(el ? el.value.trim() : (i === 0 ? 'もるまさ' : i === 1 ? '相手' : i === 2 ? '相手２' : `相手${i + 1}`));
+        names.push(el ? el.value.trim() : (i === 0 ? 'SÖ' : i === 1 ? '相手' : i === 2 ? '相手２' : `相手${i + 1}`));
   }
   const gname = document.getElementById('game-name');
   S.settings.gameName = gname ? gname.value.trim() : '';
@@ -620,9 +620,9 @@ function buildApp() {
   const isLive = S.phase === 'playing';
   return `
     <div class="page-header">
-      <img src="icon.png" alt="もるまさ"/>
+      <img src="icon.png" alt="SÖ"/>
       <div>
-        <h1>もるまさスコア</h1>
+        <h1>SÖスコア</h1>
         <p>モルック スコア管理 &amp; ライブ配信</p>
       </div>
       ${isLive ? '<span class="live-badge">● LIVE</span>' : ''}
@@ -660,7 +660,7 @@ function buildSetup() {
     teamInputs += `
       <div class="team-row">
         <div class="team-color" style="background:${COLORS[i]};"></div>
-        <input type="text" id="team-name-${i}" placeholder="${i === 0 ? 'もるまさ' : i === 1 ? '相手' : i === 2 ? '相手２' : '相手' + (i + 1)}" value="${escHtml(prevName)}" maxlength="20"/>
+        <input type="text" id="team-name-${i}" placeholder="${i === 0 ? 'SÖ' : i === 1 ? '相手' : i === 2 ? '相手２' : '相手' + (i + 1)}" value="${escHtml(prevName)}" maxlength="20"/>
       </div>`;
   }
 
@@ -1537,3 +1537,4 @@ render();
 </script>
 </body>
 </html>
+
