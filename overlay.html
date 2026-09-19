@@ -326,15 +326,17 @@ function render(state) {
     ? TEAM_COLORS[(cur.colorIdx !== undefined ? cur.colorIdx : state.currentTeamIdx) % TEAM_COLORS.length]
     : '#FF5500';
   const turnNum = Math.floor((state.turnCount || 0) / Math.max(1, state.teams.filter(t=>!t.isEliminated).length)) + 1;
-  const turnHtml = cur && !cur.isEliminated ? `
+  const turnHtml = state.phase === 'playing' && cur && !cur.isEliminated ? `
     <div class="turn-bar" style="background:${curColor};">
       <div class="live-dot"></div>
       <div class="turn-label">▶ ${esc(cur.name)} の番</div>
       <div class="turn-count">ターン ${turnNum}</div>
     </div>` : '';
 
+  const stageHtml = rm === 'uniform' ? `<div class="game-title-bar" style="padding:7px 12px;margin-bottom:8px;"><span class="game-title-name" style="font-size:12px;">${state.phase === 'set_finished' ? '区間終了・次の投擲順を設定中' : `現在の到達点 ${state.uniformMilestone || Math.min(state.targetScore, (state.currentSet || 1) * 50)}点`}</span><span class="game-title-reg">${state.currentSet || 1}/${Math.ceil(state.targetScore / 50)} 区間</span></div>` : '';
   el.innerHTML = `
     ${titleHtml}
+    ${stageHtml}
     ${turnHtml}
     ${buildTeamsGrid(state)}
     ${buildRecentThrows(state)}
@@ -344,12 +346,13 @@ function render(state) {
 function buildTeamsGrid(state) {
   const count = state.teams.length;
   const curId = state.teams[state.currentTeamIdx]?.id;
+  const rm = state.regMode || 'match';
 
   const cards = state.teams.map((t, i) => {
     const isActive = t.id === curId && state.phase === 'playing' && !t.isEliminated;
     const cls = t.isEliminated ? 'eliminated' : isActive ? 'active' : 'inactive';
     const color = TEAM_COLORS[(t.colorIdx !== undefined ? t.colorIdx : i) % TEAM_COLORS.length];
-    const pct = Math.min(100, Math.round((t.score / state.targetScore) * 100));
+    const pct = Math.min(100, Math.round((t.score / (rm === 'uniform' ? (state.uniformMilestone || state.targetScore) : state.targetScore)) * 100));
 
     // ヘッダー: アクティブ=チームカラー背景・白文字、非アクティブ=グレー背景・ダーク文字
     const headerBg    = isActive ? color : '#E4E9EF';
