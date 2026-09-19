@@ -294,7 +294,7 @@ function render(state) {
   // レギュレーションラベル生成
   const rm = state.regMode || 'match';
   const rn = state.regN || 3;
-  const regLabel = rm === 'first' ? `${rn}セット先取` : rm === 'total' ? `${rn}セット合計` : `${rn}セット勝負`;
+  const regLabel = rm === 'uniform' ? `${state.targetScore}点均一` : rm === 'first' ? `${rn}セット先取` : rm === 'total' ? `${rn}セット合計` : `${rn}セット勝負`;
   // 大会名がなくてもレギュ名は常に表示
   const titleHtml = `<div class="game-title-bar">
     ${state.gameName ? `<span class="game-title-name">${esc(state.gameName)}</span>` : ''}
@@ -373,7 +373,7 @@ function buildTeamsGrid(state) {
 
     const setWins = t.setWins || 0;
     const setTotalScore = t.setTotalScore || 0;
-    const hasSets = (state.teams.some(tm => (tm.setWins || 0) > 0 || (tm.setTotalScore || 0) > 0));
+    const hasSets = rm !== 'uniform' && (state.teams.some(tm => (tm.setWins || 0) > 0 || (tm.setTotalScore || 0) > 0));
     const totalSetsNeeded = state.regN || 3;
     // ドット式：勝利済み=実色、未勝利=空白
     const setWinBadge = hasSets ? Array.from({length: totalSetsNeeded}, (_, di) =>
@@ -445,7 +445,7 @@ function buildRecentThrows(state) {
       if (h.points === 0) {
         chip = `<span class="throw-chip miss-chip">ミス</span>`;
       } else if (h.burst) {
-        chip = `<span class="throw-chip burst-chip">${h.points}→25</span>`;
+        chip = `<span class="throw-chip burst-chip">${h.points}→${h.burstReset ?? 25}</span>`;
       } else {
         chip = `<span class="throw-chip" style="background:${color}18;color:${color};border:1.5px solid ${color}44;">${h.points}</span>`;
       }
