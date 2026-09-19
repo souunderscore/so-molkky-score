@@ -294,7 +294,7 @@ function render(state) {
   // レギュレーションラベル生成
   const rm = state.regMode || 'match';
   const rn = state.regN || 3;
-  const regLabel = rm === 'first' ? `${rn}セット先取` : rm === 'total' ? `${rn}セット合計` : `${rn}セット勝負`;
+  const regLabel = rm === 'uniform' ? `${state.finalTargetScore || rn*50}点均一 · ${state.currentSet || 1}セット目` : rm === 'first' ? `${rn}セット先取` : rm === 'total' ? `${rn}セット合計` : `${rn}セット勝負`;
   // 大会名がなくてもレギュ名は常に表示
   const titleHtml = `<div class="game-title-bar">
     ${state.gameName ? `<span class="game-title-name">${esc(state.gameName)}</span>` : ''}
