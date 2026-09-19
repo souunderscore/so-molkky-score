@@ -231,7 +231,10 @@ let S = loadState() || {
 };
 
 function saveState() {
+  // 得点などの実際の状態変更時だけ同期時刻を更新する。
+  S.syncedAt = Math.max(Date.now(), (S.syncedAt || 0) + 1);
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(S)); } catch(e) {}
+  broadcastState();
 }
 
 function loadState() {
@@ -397,7 +400,6 @@ function endSet(setWinnerId) {
     S.phase = 'set_finished';
     S.lastSetWinnerId = setWinnerId;
     saveState();
-    broadcastState();
     render();
     return;
   }
@@ -430,7 +432,6 @@ function endSet(setWinnerId) {
   S.phase = 'set_finished';
   S.lastSetWinnerId = setWinnerId;
   saveState();
-  broadcastState();
   render();
 }
 
@@ -459,7 +460,6 @@ function nextSet() {
   S.turnCount = 0;
   S.phase = 'playing';
   saveState();
-  broadcastState();
   render();
 }
 
@@ -482,7 +482,6 @@ function endGame(winnerId) {
   if (S.history.length > 50) S.history.pop();
 
   saveState();
-  broadcastState();
   render();
 }
 
@@ -510,7 +509,6 @@ function startGame() {
   S.winnerId = null;
   S.phase = 'playing';
   saveState();
-  broadcastState();
   render();
 }
 
@@ -526,7 +524,6 @@ function resetGame() {
   S.finishedAt = null;
   S.winnerId = null;
   saveState();
-  broadcastState();
   render();
 }
 
@@ -543,7 +540,6 @@ function rematch() {
   S.winnerId = null;
   S.phase = 'playing';
   saveState();
-  broadcastState();
   render();
 }
 
@@ -554,12 +550,13 @@ let bc = null;
 try { bc = new BroadcastChannel('molkky_live'); } catch(e) {}
 
 function broadcastState() {
-  const payload = JSON.stringify({ type: 'state', data: getPublicState() });
+  const data = getPublicState();
+  const payload = JSON.stringify({ type: 'state', data });
   if (bc) bc.postMessage(payload);
   try { localStorage.setItem('molkky_live_state', payload); } catch(e) {}
-  // Firebase Realtime Database に書き込む（クロスデバイス同期）
+  // 同じスナップショットを全同期先へ渡す。画面の再描画では呼ばない。
   if (window._fbSet) {
-    try { window._fbSet('game', getPublicState()); } catch(e) {}
+    try { window._fbSet('game', data); } catch(e) {}
   }
 }
 
@@ -618,7 +615,7 @@ function getPublicState() {
     uniformMilestone: S.settings.regMode === 'uniform' ? Math.min(S.settings.targetScore, (S.currentSet || 1) * 50) : null,
     recentThrows,
     setResults: JSON.parse(JSON.stringify(S.setResults || [])),
-    updatedAt: Date.now(),
+    updatedAt: S.syncedAt || S.startedAt || 0,
   };
 }
 
@@ -634,7 +631,6 @@ function render() {
   const app = document.getElementById('app');
   app.innerHTML = buildApp();
   bindEvents();
-  broadcastState();
 }
 
 function buildApp() {

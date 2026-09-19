@@ -571,28 +571,38 @@ const firebaseConfig = {
   databaseURL: 'https://so-molkky-score-default-rtdb.asia-southeast1.firebasedatabase.app/'
 };
 firebase.initializeApp(firebaseConfig);
+// 初期表示時にローカルの最新スナップショットを読み込む。
+// FirebaseやBroadcastChannelから古い状態が来ても表示を巻き戻さない。
+let latestUpdatedAt = -1;
+function acceptState(data) {
+  if (!data || !Array.isArray(data.teams)) return;
+  const timestamp = Number(data.updatedAt) || 0;
+  if (timestamp < latestUpdatedAt) return;
+  const serialized = JSON.stringify(data);
+  if (serialized === lastStateStr) return;
+  latestUpdatedAt = timestamp;
+  lastStateStr = serialized;
+  render(data);
+}
+
+const init = getState();
+if (init) acceptState(init); else render(null);
+
 firebase.database().ref('game').on('value', (snapshot) => {
-  const data = snapshot.val();
-  if (data) {
-    const s = JSON.stringify(data);
-    if (s !== lastStateStr) { lastStateStr = s; render(data); }
-  }
+  acceptState(snapshot.val());
+}, (error) => {
+  console.error('Firebase score sync failed:', error);
 });
 
-// フォールバック: BroadcastChannel（同一デバイス内の即時同期）
 try {
   const bc = new BroadcastChannel('molkky_live');
   bc.onmessage = (e) => {
     try {
       const msg = JSON.parse(e.data);
-      if (msg.type === 'state') { lastStateStr = JSON.stringify(msg.data); render(msg.data); }
+      if (msg.type === 'state') acceptState(msg.data);
     } catch(_) {}
   };
 } catch(_) {}
-
-// 初期表示: localStorageから読み込み（Firebase接続前の表示用）
-const init = getState();
-if (init) { lastStateStr = JSON.stringify(init); render(init); } else { render(null); }
 </script>
 </body>
 </html>
