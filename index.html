@@ -217,7 +217,7 @@ let S = loadState() || {
     teamCount: 2,
     targetScore: 50,
     maxMiss: 3,
-    gameName: '',
+    gameName: readSavedGameName(),
     regMode: 'match',      // 'match'=Nセット勝負 | 'first'=Nセット先取 | 'total'=Nセット合計
     regN: 3,               // セット数
   },
@@ -234,6 +234,10 @@ let S = loadState() || {
 
 function saveState() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(S)); } catch(e) {}
+}
+
+function readSavedGameName() {
+  try { return localStorage.getItem('molkky_game_name') || ''; } catch(e) { return ''; }
 }
 
 function loadState() {
@@ -264,7 +268,7 @@ function applyThrow(teamIdx, points) {
   const team = S.teams[teamIdx];
   if (!team || team.isEliminated) return;
 
-  if (uniformMode() && S.phase !== 'playing') return;
+  if (S.phase !== 'playing') return;
   if (uniformMode()) { S.previousSetUndo = null; S.uniformBeforeThrow = JSON.parse(JSON.stringify({teams:S.teams,currentTeamIdx:S.currentTeamIdx,turnCount:S.turnCount,currentSet:S.currentSet,setResults:S.setResults})); }
   const timestamp = Date.now();
   const prevScore = team.score;
@@ -331,6 +335,7 @@ function advanceTurn() {
 }
 
 function undoLastThrow() {
+  if (S.phase !== 'playing' && S.phase !== 'set_finished') return;
   if (uniformMode() && S.phase === 'playing' && S.turnCount === 0 && S.previousSetUndo) {
     S.uniformBeforeThrow = S.previousSetUndo; S.previousSetUndo = null;
   }
@@ -340,22 +345,42 @@ function undoLastThrow() {
     S.uniformBeforeThrow = null; S.phase = 'playing'; S.winnerId = null; S.finishedAt = null;
     saveState(); broadcastState(); render(); return;
   }
-  const team = S.teams[S.currentTeamIdx];
-  // まず現在のチームの最後の投擲を探す
-  // 前のチームに戻る
+  const wasSetFinished = S.phase === 'set_finished';
   let prevIdx = S.currentTeamIdx;
-  let found = false;
-
-  // 直前の有効な投擲を持つチームを探す
-  for (let i = 0; i < S.teams.length; i++) {
-    prevIdx = (S.currentTeamIdx - 1 - i + S.teams.length * 10) % S.teams.length;
-    if (S.teams[prevIdx].history.length > 0) {
-      found = true;
-      break;
+  if (wasSetFinished) {
+    // セットを終了させた投擲では手番が進んでいない。
+    if (!S.teams[prevIdx]?.history.length) return;
+    const result = S.setResults.pop();
+    if (result) {
+      S.teams.forEach(t => {
+        const score = result.scores.find(sc => sc.teamId === t.id);
+        t.setTotalScore = (t.setTotalScore || 0) - (score?.score || 0);
+        if (t.id === result.winnerId) t.setWins--;
+      });
     }
+    // 脱落で最後の1チームに与えた目標点も元に戻す。
+    if (S.teams[prevIdx].isEliminated) {
+      S.teams.filter(t => !t.isEliminated).forEach(t => {
+        const last = t.history[t.history.length - 1];
+        t.score = !last ? 0 : last.burst ? RESET_SCORE : last.prevScore + last.points;
+      });
+    }
+    S.phase = 'playing';
+    S.lastSetWinnerId = S.setResults[S.setResults.length - 1]?.winnerId ?? null;
+    S.winnerId = null;
+    S.finishedAt = null;
+    _orderDraft = null;
+  } else {
+    let found = false;
+    for (let i = 0; i < S.teams.length; i++) {
+      prevIdx = (S.currentTeamIdx - 1 - i + S.teams.length * 10) % S.teams.length;
+      if (S.teams[prevIdx].history.length > 0) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) return;
   }
-
-  if (!found) return;
 
   const prevTeam = S.teams[prevIdx];
   const last = prevTeam.history[prevTeam.history.length - 1];
@@ -372,7 +397,7 @@ function undoLastThrow() {
   prevTeam.missStreak = streak;
 
   S.currentTeamIdx = prevIdx;
-  if (S.turnCount > 0) S.turnCount--;
+  if (!wasSetFinished && S.turnCount > 0) S.turnCount--;
   saveState();
   render();
 }
@@ -727,7 +752,7 @@ function buildSetup() {
       <div class="card-body">
         <div class="form-group">
           <label>試合名（任意）</label>
-          <input type="text" id="game-name" placeholder="例：予選Aブロック 第1試合" value="${escHtml(S.settings.gameName || (()=>{try{return localStorage.getItem('molkky_game_name')||'';}catch(e){return '';}})())}"/>
+          <input type="text" id="game-name" placeholder="例：予選Aブロック 第1試合" value="${escHtml(S.settings.gameName ?? readSavedGameName())}"/>
         </div>
         <div class="form-group">
           <label>チーム数</label>
@@ -1458,14 +1483,42 @@ function buildOverlayInfo() {
 // ═══════════════════════════════════════════════════════════════
 // イベントバインド
 // ═══════════════════════════════════════════════════════════════
-function bindEvents() {}
+// 再描画の前と入力時に、設定フォームの値を状態へ退避する。
+function captureSetupInputs() {
+  if (S.phase !== 'setup') return;
+  const gameName = document.getElementById('game-name');
+  if (!gameName) return;
+  S.settings.gameName = gameName.value;
+  for (let i = 0; i < S.settings.teamCount; i++) {
+    const input = document.getElementById(`team-name-${i}`);
+    if (!input) continue;
+    if (!S.teams[i]) S.teams[i] = initTeams([''])[0];
+    S.teams[i].id = i;
+    S.teams[i].colorIdx = i;
+    S.teams[i].name = input.value;
+  }
+  const target = document.getElementById('target-score');
+  const misses = document.getElementById('max-miss');
+  if (target && !uniformMode()) S.settings.targetScore = Math.max(10, parseInt(target.value) || 50);
+  if (misses) S.settings.maxMiss = Math.max(1, parseInt(misses.value) || 3);
+  saveState();
+}
+
+function bindEvents() {
+  if (S.phase !== 'setup') return;
+  document.querySelectorAll('#app input').forEach(input => {
+    input.addEventListener('input', captureSetupInputs);
+  });
+}
 
 function switchTab(tab) {
+  captureSetupInputs();
   _tab = tab;
   render();
 }
 
 function updateTeamCount(val) {
+  captureSetupInputs();
   S.settings.teamCount = parseInt(val);
   // 既存の名前を保持
   const names = [];
@@ -1486,6 +1539,7 @@ function onStartGame() {
 }
 
 function switchRegMode(mode) {
+  captureSetupInputs();
   // モード切替時にデフォルトNを設定
   const defaults = { match: 3, first: 3, total: 3, uniform: 2 };
   const wasUniform = uniformMode();
@@ -1497,6 +1551,7 @@ function switchRegMode(mode) {
 }
 
 function setUniformTarget(n) {
+  captureSetupInputs();
   S.settings.regMode = 'uniform';
   S.settings.targetScore = n;
   S.settings.regN = n / 50;
@@ -1504,6 +1559,7 @@ function setUniformTarget(n) {
 }
 
 function setRegulation(mode, n) {
+  captureSetupInputs();
   S.settings.regMode = mode;
   S.settings.regN = n;
   render();
