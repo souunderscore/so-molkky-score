@@ -4,7 +4,6 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>SÖスコア</title>
-<link rel="icon" href="icon.png"/>
 <!-- Firebase SDK (compat版: StreamLabs等の旧Chromiumでも動作) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
@@ -143,14 +142,24 @@ label{display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:5
 .modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:#6b7280;line-height:1;}
 
 /* ─── 試合設定 ─── */
-.input-actions{display:flex;gap:6px;align-items:center;}
-.input-actions input{flex:1;min-width:0;}
-.team-row{align-items:flex-start;gap:6px;}
-.team-details{flex:1;min-width:0;}
-.team-position{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--c-muted);margin-bottom:4px;}
-.team-controls{display:flex;flex-direction:column;gap:4px;padding-top:20px;}
-.reg-fields{display:grid;grid-template-columns:1fr 110px;gap:8px;}
-.form-note{font-size:12px;color:var(--c-muted);margin-top:6px;line-height:1.5;}
+.input-actions{position:relative;flex:1;min-width:0;}
+.input-actions input{width:100%;padding-right:44px;}
+.clear-input{position:absolute;right:0;top:0;width:44px;height:44px;border:0;background:transparent;color:var(--c-muted);font-size:22px;cursor:pointer;border-radius:9px;}
+.clear-input:hover{color:var(--c-text);background:rgba(0,0,0,0.04);}
+.team-row{align-items:center;gap:6px;margin-bottom:8px;}
+.team-position{display:flex;align-items:center;justify-content:center;flex:0 0 32px;height:34px;border-radius:7px;color:#fff;font-size:11px;font-weight:700;margin:0;}
+.team-controls{display:flex;gap:2px;}
+.team-controls .btn{width:44px;min-height:44px;padding:0;font-size:18px;}
+.reg-fields{display:flex;gap:8px;align-items:center;}
+.reg-fields select{flex:1;min-width:0;}
+.reg-value-field{display:flex;gap:6px;align-items:center;flex:0 0 116px;}
+.reg-value-field input{width:82px;min-width:0;}
+.reg-unit{font-size:13px;color:var(--c-muted);white-space:nowrap;}
+.reg-fields select,.reg-fields input{height:44px;}
+.setup-screen{padding-bottom:calc(86px + env(safe-area-inset-bottom,0px));}
+.start-actions{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:520px;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));background:rgba(244,247,250,0.97);border-top:1px solid var(--c-border);z-index:100;}
+.start-actions .btn{min-height:48px;font-size:16px;font-weight:700;}
+input[type=text],input[type=number],select{font-size:16px;min-height:44px;}
 
 /* ─── セット進行バー ─── */
 .set-progress{display:flex;gap:6px;align-items:center;justify-content:center;margin:6px 0;}
@@ -215,7 +224,7 @@ let S = loadState() || {
     maxMiss: 3,
     gameName: readSavedGameName(),
     regMode: 'match',      // 'match'=Nセット勝負 | 'first'=Nセット先取 | 'total'=Nセット合計
-    regN: 3,               // セット数
+    regN: 2,               // セット数
   },
   teams: [],               // [{id, name, score, missStreak, history, isEliminated, setWins, setTotalScore}]
   currentTeamIdx: 0,
@@ -660,7 +669,7 @@ function getPublicState() {
     targetScore: currentGoal(),
     finalTargetScore: S.settings.targetScore,
     currentSet: S.currentSet,
-    regN: S.settings.regN || 3,
+    regN: S.settings.regN || 2,
     regMode: S.settings.regMode || 'match',
     recentThrows,
     setResults: JSON.parse(JSON.stringify(S.setResults || [])),
@@ -687,7 +696,6 @@ function buildApp() {
   const isLive = S.phase === 'playing';
   return `
     <div class="page-header">
-      <img src="icon.png" alt="SÖ"/>
       <div>
         <h1>SÖスコア</h1>
         <p>モルック スコア管理 &amp; ライブ配信</p>
@@ -733,20 +741,15 @@ function buildSetup() {
   ensureSetupTeams();
   const tc = S.settings.teamCount;
   const rm = S.settings.regMode || 'match';
-  const rn = S.settings.regN || 3;
+  const rn = S.settings.regN || 2;
   const teamInputs = S.teams.map((t, i) => {
     const ci = t.colorIdx ?? t.id;
     return `
       <div class="team-row">
-        <div class="team-details">
-          <label class="team-position" for="team-name-${i}">
-            <span class="team-color" style="background:${COLORS[ci % COLORS.length]};"></span>
-            ${tc === 2 ? (i === 0 ? '1 · 先攻' : '2 · 後攻') : `${i + 1}番目`}
-          </label>
-          <div class="input-actions">
-            <input type="text" id="team-name-${i}" placeholder="${defaultTeamName(ci)}" value="${escHtml(t.name)}" maxlength="20"/>
-            <button type="button" class="btn btn-xs" onclick="clearSetupField(${i})" aria-label="${i + 1}番目のチーム名をクリア">クリア</button>
-          </div>
+        <label class="team-position" for="team-name-${i}" style="background:${COLORS[ci % COLORS.length]};" aria-label="${i + 1}番目${tc === 2 ? (i === 0 ? '・先攻' : '・後攻') : ''}">${tc === 2 ? (i === 0 ? '先攻' : '後攻') : i + 1}</label>
+        <div class="input-actions">
+          <input type="text" id="team-name-${i}" placeholder="${defaultTeamName(ci)}" value="${escHtml(t.name)}" maxlength="20"/>
+          <button type="button" class="clear-input" onclick="clearSetupField(${i})" aria-label="${i + 1}番目のチーム名をクリア">×</button>
         </div>
         <div class="team-controls">
           <button type="button" class="btn btn-xs" onclick="moveSetupTeam(${i},${i-1})" ${i === 0 ? 'disabled' : ''} aria-label="${i + 1}番目のチームを上へ">↑</button>
@@ -754,9 +757,8 @@ function buildSetup() {
         </div>
       </div>`;
   }).join('');
-  const regLabel = rm==='uniform' ? `${S.settings.targetScore}点均一` : rm==='match' ? `${rn}セット勝負` : rm==='first' ? `${rn}セット先取` : `${rn}セット合計`;
-
   return `
+    <div class="setup-screen">
     <div class="card">
       <div class="card-header"><span class="card-title">⚙️ 試合設定</span></div>
       <div class="card-body">
@@ -764,7 +766,7 @@ function buildSetup() {
           <label>試合名（任意）</label>
           <div class="input-actions">
             <input type="text" id="game-name" placeholder="例：予選Aブロック 第1試合" value="${escHtml(S.settings.gameName ?? readSavedGameName())}"/>
-            <button type="button" class="btn btn-xs" onclick="clearSetupField('game')" aria-label="試合名をクリア">クリア</button>
+            <button type="button" class="clear-input" onclick="clearSetupField('game')" aria-label="試合名をクリア">×</button>
           </div>
         </div>
         <div class="form-group">
@@ -775,27 +777,19 @@ function buildSetup() {
         </div>
         <div class="form-group">
           <label>チーム名・投擲順</label>
-          <div class="form-note" style="margin-bottom:8px;">上から投擲順です。↑↓でチームごと入れ替えます。</div>
           ${teamInputs}
         </div>
 
         <div class="form-group">
-          <label for="reg-mode">レギュレーション <span id="reg-summary" style="font-weight:400;color:#1D9E75;">${regLabel}</span></label>
+          <label for="reg-mode">レギュレーション</label>
           <div class="reg-fields">
             <select id="reg-mode" onchange="switchRegMode(this.value)" aria-label="試合形式">
               ${[['match','セット勝負'],['first','セット先取'],['total','セット合計'],['uniform','点数均一']].map(([mode,label])=>`<option value="${mode}" ${rm === mode ? 'selected' : ''}>${label}</option>`).join('')}
             </select>
-            <div>
+            <div class="reg-value-field">
               <input type="number" id="reg-value" aria-label="${rm === 'uniform' ? '均一の目標点' : 'セット数'}" value="${rm === 'uniform' ? S.settings.targetScore : rn}" min="${rm === 'uniform' ? 50 : 1}" step="${rm === 'uniform' ? 50 : 1}" onblur="normalizeRegInput(this)"/>
-              <div class="form-note">${rm === 'uniform' ? '点均一' : rm === 'first' ? 'セット先取' : 'セット'}</div>
+              <span class="reg-unit">${rm === 'uniform' ? '点' : 'セット'}</span>
             </div>
-          </div>
-          ${rm === 'uniform' ? '<div class="form-note">50点単位で切り捨てます（最低50点）。例：120 → 100点。</div>' : ''}
-          <div style="font-size:12px;color:#6b7280;margin-top:6px;">
-            ${rm==='match' ? '指定セット数をこなして終了。セット勝利数が多い方が勝者。' :
-              rm==='first' ? '指定セット数を先に取ったチームが勝者。' :
-              rm==='uniform' ? '50点ごとに区切り、得点を引き継いで目標点へ。脱落チームは次セットで0点復帰。' :
-              '指定セット数の合計得点が多い方が勝者。'}
           </div>
         </div>
 
@@ -809,10 +803,13 @@ function buildSetup() {
             <input type="number" id="max-miss" value="${S.settings.maxMiss}" min="1" max="5"/>
           </div>
         </div>
-        <button class="btn btn-primary btn-block" onclick="onStartGame()" style="margin-top:4px;">試合開始 🎯</button>
       </div>
     </div>
     ${buildOverlayInfo()}
+    <div class="start-actions">
+      <button class="btn btn-primary btn-block" onclick="onStartGame()">試合開始 🎯</button>
+    </div>
+    </div>
   `;
 }
 
@@ -1549,12 +1546,7 @@ function normalizedRegValue(value, mode) {
 function normalizeRegInput(input) {
   captureSetupInputs();
   input.value = uniformMode() ? S.settings.targetScore : S.settings.regN;
-  const summary = document.getElementById('reg-summary');
-  if (summary) {
-    const { regMode, regN, targetScore } = S.settings;
-    summary.textContent = regMode === 'uniform' ? `${targetScore}点均一`
-      : `${regN}セット${regMode === 'first' ? '先取' : regMode === 'total' ? '合計' : '勝負'}`;
-  }
+
 }
 
 function onStartGame() {
@@ -1569,7 +1561,7 @@ function onStartGame() {
 function switchRegMode(mode) {
   captureSetupInputs();
   // モード切替時にデフォルトNを設定
-  const defaults = { match: 3, first: 3, total: 3, uniform: 2 };
+  const defaults = { match: 2, first: 2, total: 2, uniform: 2 };
   const wasUniform = uniformMode();
   if (mode === 'uniform') S.settings.targetScore = 100;
   else if (wasUniform) S.settings.targetScore = 50;
