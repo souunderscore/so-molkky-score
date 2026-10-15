@@ -374,13 +374,9 @@ function buildTeamsGrid(state) {
     const setWins = t.setWins || 0;
     const setTotalScore = t.setTotalScore || 0;
     const hasSets = (state.teams.some(tm => (tm.setWins || 0) > 0 || (tm.setTotalScore || 0) > 0));
-    const totalSetsNeeded = state.regN || 3;
-    // ドット式：勝利済み=実色、未勝利=空白
-    const setWinBadge = hasSets ? Array.from({length: totalSetsNeeded}, (_, di) =>
-      di < setWins
-        ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${isActive?'#fff':color};margin:0 1px;"></span>`
-        : `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:transparent;border:1.5px solid ${isActive?'rgba(255,255,255,0.5)':color};margin:0 1px;opacity:0.45;"></span>`
-    ).join('') : '';
+    const setWinBadge = hasSets
+      ? `<span style="font-size:10px;font-weight:700;color:${isActive ? '#fff' : color};margin-left:4px;">${setWins}勝</span>`
+      : '';
     const totalBadge = hasSets
       ? `<span style="font-size:9px;font-weight:700;color:${isActive?'rgba(255,255,255,0.8)':'#6b7280'};margin-left:4px;">計${setTotalScore}</span>`
       : '';

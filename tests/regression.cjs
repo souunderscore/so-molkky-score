@@ -179,3 +179,78 @@ test('input listeners persist edits without needing a settings change', () => {
   assert.equal(saved.teams[0].name, 'New name');
   assert.equal(saved.settings.gameName, '決勝');
 });
+
+
+for (const [input, expected] of [[120,100], [175,150], [75,50], [0,50], [-50,50], [5000,5000], [150.9,150]]) {
+  test(`uniform target ${input} becomes ${expected} on blur and in saved state`, () => {
+    const a = app(); setup(a);
+    a.run("switchRegMode('uniform')");
+    a.inputs['reg-value'] = {value: String(input)};
+    a.run("normalizeRegInput(document.getElementById('reg-value'))");
+    assert.equal(Number(a.inputs['reg-value'].value), expected);
+    assert.equal(a.run('S.settings.targetScore'), expected);
+    assert.equal(a.run('S.settings.regN'), expected / 50);
+    const saved = JSON.parse(a.values.get('molkky_so_v2'));
+    assert.equal(saved.settings.targetScore, expected);
+  });
+}
+
+for (const mode of ['match','first','total']) {
+  test(`${mode} supports large set counts without proportional display allocation`, () => {
+    const a = app(); setup(a);
+    a.run(`switchRegMode('${mode}')`);
+    a.inputs['reg-value'] = {value: '100000'};
+    a.run('onStartGame()');
+    assert.equal(a.run('S.settings.regN'), 100000);
+    a.run('S.teams[0].setWins=1; S.teams[0].setTotalScore=50; S.setResults=[{}]');
+    assert.ok(a.run('buildPlaying().length') < 25000);
+  });
+}
+
+test('game name clear removes the separately saved name and keeps team data', () => {
+  const a = app(); setup(a);
+  a.values.set('molkky_game_name','古い試合');
+  a.run("clearSetupField('game')");
+  const b = app(a.values.get('molkky_so_v2'));
+  assert.equal(b.run('S.settings.gameName'), '');
+  assert.equal(a.values.get('molkky_game_name'), '');
+  assert.equal(b.run('S.teams[0].name'), 'Alpha');
+  assert.equal(b.run('S.settings.maxMiss'), 4);
+});
+
+test('clearing one team keeps its identity, order and all other fields', () => {
+  const a = app(); setup(a);
+  a.run('captureSetupInputs()');
+  const before = a.json('S.teams.map(t => ({id:t.id,colorIdx:t.colorIdx}))');
+  a.run('clearSetupField(1)');
+  assert.equal(a.run('S.teams[1].name'), '');
+  assert.equal(a.run('S.teams[0].name'), 'Alpha');
+  assert.equal(a.run('S.settings.gameName'), '決勝');
+  assert.deepEqual(a.json('S.teams.map(t => ({id:t.id,colorIdx:t.colorIdx}))'), before);
+});
+
+test('reordered identities and colors survive start, reload, rotation and rematch', () => {
+  const a = app(); setup(a);
+  a.run('moveSetupTeam(1,0)');
+  assert.deepEqual(a.json('S.teams.map(t=>t.name)'), ['Beta','Alpha']);
+  // Simulate the form fields produced by the real render after moving teams.
+  a.inputs['team-name-0'].value = 'Beta'; a.inputs['team-name-1'].value = 'Alpha';
+  a.run('onStartGame()');
+  assert.deepEqual(a.json('S.initialOrder'), [1,0]);
+  assert.deepEqual(a.json('S.teams.map(t=>t.colorIdx)'), [1,0]);
+  const b = app(a.values.get('molkky_so_v2'));
+  b.run('S.teams[0].score=59; applyThrow(0,1); nextSet()');
+  assert.deepEqual(b.json('S.teams.map(t=>t.id)'), [0,1]);
+  b.run('rematch()');
+  assert.deepEqual(b.json('S.teams.map(t=>t.id)'), [1,0]);
+  assert.deepEqual(b.json('S.teams.map(t=>t.name)'), ['Beta','Alpha']);
+});
+
+test('changing team count after reordering keeps IDs and colors unique', () => {
+  const a = app(); setup(a);
+  a.run('moveSetupTeam(1,0)');
+  a.inputs['team-name-0'].value = 'Beta'; a.inputs['team-name-1'].value = 'Alpha';
+  a.run('updateTeamCount(3)');
+  assert.deepEqual(a.json('S.teams.map(t=>t.id)'), [1,0,2]);
+  assert.deepEqual(a.json('S.teams.map(t=>t.colorIdx)'), [1,0,2]);
+});
