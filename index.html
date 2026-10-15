@@ -207,6 +207,26 @@ const MAX_SCORE = 50;
 const RESET_SCORE = 25;
 function uniformMode() { return S.settings.regMode === 'uniform'; }
 function currentGoal() { return uniformMode() ? Math.min(S.settings.targetScore, S.currentSet * 50) : S.settings.targetScore; }
+function primeExtended(results = S.setResults) {
+  if (results.length < 6) return false;
+  const wins = new Map();
+  results.slice(0, 6).forEach(r => {
+    if (r.winnerId != null) wins.set(r.winnerId, (wins.get(r.winnerId) || 0) + 1);
+  });
+  return wins.size === 2 && [...wins.values()].every(n => n === 3);
+}
+
+function enforcePrimeSettings() {
+  if (S.settings.regMode !== 'prime') return;
+  Object.assign(S.settings, {teamCount: 2, regN: 4, targetScore: 50, maxMiss: 3});
+}
+
+function regulationLabel(settings) {
+  const {regMode, regN, targetScore} = settings;
+  return regMode === 'prime' ? 'プライム' : regMode === 'uniform' ? `${targetScore}点均一`
+    : `${regN}セット${regMode === 'first' ? '先取' : regMode === 'total' ? '合計' : '勝負'}`;
+}
+
 const MAX_MISS = 3;
 const COLORS = ['#FF5500','#2B9DC8','#9B59B6','#27AE60','#E67E22','#E74C3C'];
 const LIGHT_COLORS = ['#FFF0E8','#E8F6FC','#F5EEF8','#E9F7EF','#FEF5E7','#FDEDEC'];
@@ -444,6 +464,18 @@ function endSet(setWinnerId) {
 
   if (regMode === 'uniform') {
     if (S.currentSet * 50 >= S.settings.targetScore) { endGame(setWinnerId); return; }
+  } else if (regMode === 'prime') {
+    if (primeExtended()) {
+      if (totalSets >= 8) {
+        const maxWins = Math.max(...S.teams.map(t => t.setWins || 0));
+        const winners = S.teams.filter(t => (t.setWins || 0) === maxWins);
+        endGame(winners.length === 1 ? winners[0].id : null);
+        return;
+      }
+    } else {
+      const champion = S.teams.find(t => t.setWins >= 4);
+      if (champion) { endGame(champion.id); return; }
+    }
   } else if (regMode === 'first') {
     // Nセット先取: 誰かがN勝したら終了
     const champion = S.teams.find(t => t.setWins >= regN);
@@ -531,6 +563,7 @@ function endGame(winnerId) {
 
 function startGame() {
   captureSetupInputs();
+  enforcePrimeSettings();
   ensureSetupTeams();
   const draftTeams = S.teams;
   const names = [];
@@ -671,6 +704,7 @@ function getPublicState() {
     currentSet: S.currentSet,
     regN: S.settings.regN || 2,
     regMode: S.settings.regMode || 'match',
+    primeExtended: S.settings.regMode === 'prime' && primeExtended(),
     recentThrows,
     setResults: JSON.parse(JSON.stringify(S.setResults || [])),
     updatedAt: Date.now(),
@@ -738,6 +772,7 @@ function ensureSetupTeams() {
 }
 
 function buildSetup() {
+  enforcePrimeSettings();
   ensureSetupTeams();
   const tc = S.settings.teamCount;
   const rm = S.settings.regMode || 'match';
@@ -771,7 +806,7 @@ function buildSetup() {
         </div>
         <div class="form-group">
           <label>チーム数</label>
-          <select id="team-count-select" onchange="updateTeamCount(this.value)">
+          <select id="team-count-select" onchange="updateTeamCount(this.value)" ${rm === 'prime' ? 'disabled' : ''}>
             ${[2,3,4,5,6].map(n=>`<option value="${n}" ${tc===n?'selected':''}>${n}チーム</option>`).join('')}
           </select>
         </div>
@@ -784,10 +819,10 @@ function buildSetup() {
           <label for="reg-mode">レギュレーション</label>
           <div class="reg-fields">
             <select id="reg-mode" onchange="switchRegMode(this.value)" aria-label="試合形式">
-              ${[['match','セット勝負'],['first','セット先取'],['total','セット合計'],['uniform','点数均一']].map(([mode,label])=>`<option value="${mode}" ${rm === mode ? 'selected' : ''}>${label}</option>`).join('')}
+              ${[['match','セット勝負'],['first','セット先取'],['total','セット合計'],['uniform','点数均一'],['prime','プライム']].map(([mode,label])=>`<option value="${mode}" ${rm === mode ? 'selected' : ''}>${label}</option>`).join('')}
             </select>
             <div class="reg-value-field">
-              <input type="number" id="reg-value" aria-label="${rm === 'uniform' ? '均一の目標点' : 'セット数'}" value="${rm === 'uniform' ? S.settings.targetScore : rn}" min="${rm === 'uniform' ? 50 : 1}" step="${rm === 'uniform' ? 50 : 1}" onblur="normalizeRegInput(this)"/>
+              <input type="number" id="reg-value" aria-label="${rm === 'uniform' ? '均一の目標点' : 'セット数'}" value="${rm === 'uniform' ? S.settings.targetScore : rn}" min="${rm === 'uniform' ? 50 : 1}" step="${rm === 'uniform' ? 50 : 1}" onblur="normalizeRegInput(this)" ${rm === 'prime' ? 'disabled' : ''}/>
               <span class="reg-unit">${rm === 'uniform' ? '点' : 'セット'}</span>
             </div>
           </div>
@@ -796,11 +831,11 @@ function buildSetup() {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;" class="form-group">
           <div>
             <label>${rm==='uniform' ? '最初の区間の目標' : '目標スコア（1セット）'}</label>
-            <input type="number" id="target-score" value="${rm==='uniform' ? 50 : S.settings.targetScore}" min="10" max="100" ${rm==='uniform' ? 'disabled' : ''}/>
+            <input type="number" id="target-score" value="${rm==='uniform' ? 50 : S.settings.targetScore}" min="10" max="100" ${rm==='uniform' || rm==='prime' ? 'disabled' : ''}/>
           </div>
           <div>
             <label>最大ミス数</label>
-            <input type="number" id="max-miss" value="${S.settings.maxMiss}" min="1" max="5"/>
+            <input type="number" id="max-miss" value="${S.settings.maxMiss}" min="1" max="5" ${rm === 'prime' ? 'disabled' : ''}/>
           </div>
         </div>
       </div>
@@ -828,10 +863,10 @@ function buildSetProgress() {
       <span style="font-size:12px;color:#6b7280;min-width:40px;">${label}</span>
     </div>`;
   }).join('');
-  const regLabel = regMode==='uniform' ? `${S.settings.targetScore}点均一` : regMode==='match' ? `${regN}セット勝負` : regMode==='first' ? `${regN}セット先取` : `${regN}セット合計`;
+  const regLabel = regulationLabel(S.settings);
   return `<div class="card" style="margin-bottom:10px;">
     <div class="card-body" style="padding:10px 14px;">
-      <div style="font-size:12px;font-weight:700;color:#6b7280;margin-bottom:8px;">📋 ${regLabel} — セット ${S.currentSet}${regMode === 'first' ? '' : '/' + regN}</div>
+      <div style="font-size:12px;font-weight:700;color:#6b7280;margin-bottom:8px;">📋 ${regLabel} — セット ${S.currentSet}${regMode === 'prime' ? (primeExtended() ? '/8' : '') : regMode === 'first' ? '' : '/' + regN}</div>
       <div style="display:flex;flex-direction:column;gap:6px;">${rows}</div>
     </div>
   </div>`;
@@ -867,7 +902,7 @@ function buildSetFinished() {
   const { regMode, regN } = S.settings;
   const setWinner = S.teams.find(t => t.id === S.lastSetWinnerId);
   const nextSetNum = S.currentSet + 1;
-  const regLabel = regMode==='uniform' ? `${S.settings.targetScore}点均一` : regMode==='match' ? `${regN}セット勝負` : regMode==='first' ? `${regN}セット先取` : `${regN}セット合計`;
+  const regLabel = regulationLabel(S.settings);
   const draft = getOrderDraft();
 
   // セット結果行
@@ -1304,9 +1339,7 @@ function buildHistoryTab() {
 
     // レギュレーションラベル
     const gs = g.settings || {};
-    const regLabel = gs.regMode === 'uniform' ? `${gs.targetScore}点均一` : gs.regMode === 'first' ? `${gs.regN}セット先取` :
-                     gs.regMode === 'total' ? `${gs.regN}セット合計` :
-                     gs.regN ? `${gs.regN}セット勝負` : '';
+    const regLabel = gs.regN || gs.regMode === 'prime' ? regulationLabel(gs) : '';
 
     // チームカラーマップ（colorIdx基準）
     const teamColorMap = {};
@@ -1494,6 +1527,7 @@ function captureSetupInputs() {
   const misses = document.getElementById('max-miss');
   if (target && !uniformMode()) S.settings.targetScore = Math.max(10, parseInt(target.value) || 50);
   if (misses) S.settings.maxMiss = Math.max(1, parseInt(misses.value) || 3);
+  enforcePrimeSettings();
   saveState();
 }
 
@@ -1512,7 +1546,7 @@ function switchTab(tab) {
 
 function updateTeamCount(val) {
   captureSetupInputs();
-  S.settings.teamCount = parseInt(val);
+  S.settings.teamCount = S.settings.regMode === 'prime' ? 2 : parseInt(val);
   ensureSetupTeams();
   saveState();
   render();
@@ -1538,6 +1572,7 @@ function clearSetupField(field) {
 }
 
 function normalizedRegValue(value, mode) {
+  if (mode === 'prime') return 4;
   const number = Number(value);
   const integer = Number.isFinite(number) ? Math.min(Number.MAX_SAFE_INTEGER, Math.floor(number)) : 1;
   return mode === 'uniform' ? Math.max(50, Math.floor(integer / 50) * 50) : Math.max(1, integer);
@@ -1561,12 +1596,14 @@ function onStartGame() {
 function switchRegMode(mode) {
   captureSetupInputs();
   // モード切替時にデフォルトNを設定
-  const defaults = { match: 2, first: 2, total: 2, uniform: 2 };
+  const defaults = { match: 2, first: 2, total: 2, uniform: 2, prime: 4 };
   const wasUniform = uniformMode();
   if (mode === 'uniform') S.settings.targetScore = 100;
   else if (wasUniform) S.settings.targetScore = 50;
   S.settings.regMode = mode;
   S.settings.regN = defaults[mode];
+  enforcePrimeSettings();
+  ensureSetupTeams();
   saveState(); render();
 }
 
@@ -1582,6 +1619,8 @@ function setRegulation(mode, n) {
   captureSetupInputs();
   S.settings.regMode = mode;
   S.settings.regN = normalizedRegValue(n, mode);
+  enforcePrimeSettings();
+  ensureSetupTeams();
   saveState(); render();
 }
 

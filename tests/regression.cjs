@@ -254,3 +254,99 @@ test('changing team count after reordering keeps IDs and colors unique', () => {
   assert.deepEqual(a.json('S.teams.map(t=>t.id)'), [1,0,2]);
   assert.deepEqual(a.json('S.teams.map(t=>t.colorIdx)'), [1,0,2]);
 });
+
+function primeMatch() {
+  const a = app();
+  a.run(`fresh('prime'); enforcePrimeSettings();
+    function winPrimeSet(id) {
+      const idx = S.teams.findIndex(t => t.id === id);
+      S.currentTeamIdx = idx; S.teams[idx].score = 49;
+      applyThrow(idx,1);
+    }
+  `);
+  return a;
+}
+function playPrime(a, winners) {
+  for (const id of winners) {
+    if (a.run('S.phase') === 'set_finished') a.run('nextSet()');
+    a.run(`winPrimeSet(${id})`);
+  }
+}
+
+for (const winner of [0,1]) {
+  for (const losses of [0,1,2]) {
+    test(`prime ends at 4-${losses} for team ${winner}`, () => {
+      const a = primeMatch();
+      playPrime(a, [...Array(losses).fill(1-winner), ...Array(4).fill(winner)]);
+      assert.equal(a.run('S.phase'), 'finished');
+      assert.equal(a.run('S.winnerId'), winner);
+      assert.equal(a.run('S.setResults.length'), 4+losses);
+      assert.equal(a.run('S.history.length'), 1);
+      assert.equal(a.run('primeExtended()'), false);
+      assert.match(a.run('buildHistoryTab()'), /プライム/);
+    });
+  }
+}
+
+test('all 3-3 prefixes continue through 4-3 and finish at 5-3, 4-4 or 3-5', () => {
+  for (let mask=0; mask<64; mask++) {
+    const prefix = Array.from({length:6}, (_,i)=>(mask>>i)&1);
+    if (prefix.filter(id=>id===0).length !== 3) continue;
+    for (const tail of [[0,0],[0,1],[1,0],[1,1]]) {
+      const a = primeMatch(); playPrime(a,prefix);
+      assert.equal(a.run('S.phase'), 'set_finished');
+      assert.equal(a.run('primeExtended()'), true);
+      playPrime(a,[tail[0]]);
+      assert.equal(a.run('S.phase'), 'set_finished');
+      assert.equal(a.run('S.history.length'), 0);
+      assert.match(a.run('buildSetProgress()'), /セット 7\/8/);
+      playPrime(a,[tail[1]]);
+      assert.equal(a.run('S.phase'), 'finished');
+      assert.equal(a.run('S.setResults.length'), 8);
+      assert.equal(a.run('S.winnerId'), tail[0]===tail[1] ? tail[0] : null);
+      assert.equal(a.run('S.history[0].setResults.length'), 8);
+      assert.match(a.run('buildHistoryTab()'), /プライム/);
+    }
+  }
+});
+
+test('undo at 3-3 cancels extension, allowing a corrected 4-2 finish', () => {
+  const a = primeMatch(); playPrime(a,[0,0,0,1,1,1]);
+  assert.equal(a.run('primeExtended()'), true);
+  a.run('undoLastThrow()');
+  assert.equal(a.run('primeExtended()'), false);
+  assert.deepEqual(a.json('S.teams.map(t=>t.setWins).sort()'), [2,3]);
+  a.run('winPrimeSet(0)');
+  assert.equal(a.run('S.phase'), 'finished');
+  assert.equal(a.run('S.winnerId'), 0);
+  assert.equal(a.run('S.setResults.length'), 6);
+});
+
+test('reload at 4-3 retains extension and undo returns to 3-3', () => {
+  const a = primeMatch(); playPrime(a,[0,1,0,1,0,1,0]);
+  const b = app(a.values.get('molkky_so_v2'));
+  assert.equal(b.run('primeExtended()'), true);
+  assert.equal(b.run('getPublicState().primeExtended'), true);
+  b.run('undoLastThrow()');
+  assert.equal(b.run('primeExtended()'), true);
+  assert.equal(b.run('S.phase'), 'playing');
+  assert.equal(b.run('S.setResults.length'), 6);
+});
+
+test('prime fixes setup at two teams, four sets, 50 points and three misses', () => {
+  const a = app(); setup(a);
+  a.run("updateTeamCount(3); switchRegMode('prime')");
+  assert.deepEqual(a.json('[S.settings.teamCount,S.settings.regN,S.settings.targetScore,S.settings.maxMiss]'), [2,4,50,3]);
+  assert.equal(a.run('S.teams.length'), 2);
+  const html = a.run('buildSetup()');
+  for (const id of ['team-count-select','reg-value','target-score','max-miss']) {
+    assert.match(html, new RegExp(`<[^>]*id="${id}"[^>]*disabled`));
+  }
+  a.run('updateTeamCount(6)');
+  assert.equal(a.run('S.settings.teamCount'), 2);
+  a.run("switchRegMode('first')");
+  assert.equal(a.run('S.settings.regN'), 2);
+  for (const id of ['team-count-select','reg-value','target-score','max-miss']) {
+    assert.doesNotMatch(a.run('buildSetup()'), new RegExp(`<[^>]*id="${id}"[^>]*disabled`));
+  }
+});
