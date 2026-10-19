@@ -174,6 +174,13 @@ input[type=text],input[type=number],select{font-size:16px;min-height:44px;}
 .stat-label{font-size:13px;color:var(--c-muted);}
 .stat-value{font-size:15px;font-weight:700;color:var(--c-text);}
 
+.member-row{display:flex;gap:4px;align-items:center;margin:6px 0;}
+.member-row input{flex:1;min-width:0;}
+.member-row .btn{min-width:44px;min-height:44px;padding:4px;}
+.member-editor{padding:8px 0 12px;border-bottom:1px solid var(--c-border);}
+.member-label{display:block;font-size:11px;color:var(--c-muted);margin-top:3px;max-width:150px;overflow-wrap:anywhere;}
+button.member-label{background:transparent;border:0;cursor:pointer;text-decoration:underline;min-height:32px;padding:3px;font-family:inherit;}
+.member-table-wrap{overflow-x:auto;}
 /* ─── レスポンシブ ─── */
 @media(min-width:600px){
   .app{padding:20px;}
@@ -199,6 +206,11 @@ input[type=text],input[type=number],select{font-size:16px;min-height:44px;}
   </div>
 </div>
 
+<div class="modal-bg" id="modal-member"><div class="modal">
+  <div class="modal-header"><div class="modal-title" id="member-correction-title">投擲者を修正</div><button class="modal-close" onclick="closeModal('modal-member')" aria-label="閉じる">×</button></div>
+  <label for="member-correction-select">投擲者</label><select id="member-correction-select"></select>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;"><button class="btn" onclick="closeModal('modal-member')">キャンセル</button><button class="btn btn-primary" onclick="saveMemberCorrection()">保存</button></div>
+</div></div>
 <script>
 // ═══════════════════════════════════════════════════════════════
 // 定数
@@ -295,13 +307,15 @@ function applyThrow(teamIdx, points) {
 
   if (S.phase !== 'playing') return;
   if (uniformMode()) { S.previousSetUndo = null; S.uniformBeforeThrow = JSON.parse(JSON.stringify({teams:S.teams,currentTeamIdx:S.currentTeamIdx,turnCount:S.turnCount,currentSet:S.currentSet,setResults:S.setResults})); }
+  const member = currentMember(team);
+  const memberRecord = member ? {memberId: member.id, memberName: member.name} : {};
   const timestamp = Date.now();
   const prevScore = team.score;
 
   if (points === 0) {
     // ミス
     team.missStreak++;
-    team.history.push({ points: 0, prevScore, timestamp, intended: false });
+    team.history.push({ ...memberRecord, points: 0, prevScore, timestamp, intended: false });
     if (team.missStreak >= S.settings.maxMiss) {
       team.isEliminated = true;
       // 3ミス脱落: 脆者=0点、勝者=50点で強制設定
@@ -317,10 +331,10 @@ function applyThrow(teamIdx, points) {
     if (newScore > currentGoal()) {
       // バースト → 25点に戻る
       team.score = uniformMode() ? currentGoal() - 25 : RESET_SCORE;
-      team.history.push({ points, prevScore, burst: true, timestamp, intended: true });
+      team.history.push({ ...memberRecord, points, prevScore, burst: true, timestamp, intended: true });
     } else {
       team.score = newScore;
-      team.history.push({ points, prevScore, timestamp, intended: true });
+      team.history.push({ ...memberRecord, points, prevScore, timestamp, intended: true });
     }
   }
 
@@ -521,6 +535,7 @@ function nextSet() {
   S.teams = reordered.map((t) => ({
     id: t.id,           // 元のIDを維持（履歴参照の整合性を保つ）
     name: t.name,
+    members: JSON.parse(JSON.stringify(t.nextMembers || t.members || [])),
     colorIdx: t.colorIdx !== undefined ? t.colorIdx : t.id, // 固有カラーを引き継ぎ
     score: uniformMode() && !t.isEliminated ? t.score : 0,
     missStreak: 0,
@@ -544,8 +559,10 @@ function endGame(winnerId) {
   S.finishedAt = Date.now();
 
   // 履歴に追加
+  S.archiveId = Date.now();
   S.history.unshift({
-    id: Date.now(),
+    id: S.archiveId,
+    currentSet: S.currentSet,
     gameName: S.settings.gameName,
     teams: JSON.parse(JSON.stringify(S.teams)),
     winnerId,
@@ -578,7 +595,8 @@ function startGame() {
     try { localStorage.setItem('molkky_game_name', S.settings.gameName); } catch(e) {}
   }
 
-  S.teams = initTeams(names).map((t, i) => ({ ...t, id: draftTeams[i].id, colorIdx: draftTeams[i].colorIdx ?? draftTeams[i].id }));
+  S.teams.forEach(t => { t.members = (t.members || []).filter(m => m.name.trim()).map(m => ({...m,name:m.name.trim()})); });
+  S.teams = initTeams(names).map((t, i) => ({ ...t, id: draftTeams[i].id, colorIdx: draftTeams[i].colorIdx ?? draftTeams[i].id, members: JSON.parse(JSON.stringify(draftTeams[i].members || [])) }));
   S.initialOrder = S.teams.map(t => t.id);
   _orderDraft = null;
   S.currentTeamIdx = 0;
@@ -618,7 +636,7 @@ function resetGame() {
 function rematch() {
   const draftTeams = S.initialOrder
     ? S.initialOrder.map(id => S.teams.find(t => t.id === id)) : S.teams;
-  S.teams = initTeams(draftTeams.map(t => t.name)).map((t, i) => ({ ...t, id: draftTeams[i].id, colorIdx: draftTeams[i].colorIdx ?? draftTeams[i].id }));
+  S.teams = initTeams(draftTeams.map(t => t.name)).map((t, i) => ({ ...t, id: draftTeams[i].id, colorIdx: draftTeams[i].colorIdx ?? draftTeams[i].id, members: JSON.parse(JSON.stringify(draftTeams[i].members || [])) }));
   S.initialOrder = S.teams.map(t => t.id);
   _orderDraft = null;
   S.currentTeamIdx = 0;
@@ -790,7 +808,8 @@ function buildSetup() {
           <button type="button" class="btn btn-xs" onclick="moveSetupTeam(${i},${i-1})" ${i === 0 ? 'disabled' : ''} aria-label="${i + 1}番目のチームを上へ">↑</button>
           <button type="button" class="btn btn-xs" onclick="moveSetupTeam(${i},${i+1})" ${i === tc - 1 ? 'disabled' : ''} aria-label="${i + 1}番目のチームを下へ">↓</button>
         </div>
-      </div>`;
+      </div>
+      ${buildMemberEditor(i)}`;
   }).join('');
   return `
     <div class="setup-screen">
@@ -960,6 +979,7 @@ function buildSetFinished() {
       <div style="border:1.5px solid #e5e7eb;border-radius:10px;overflow:hidden;margin:0 16px 14px;">
         ${orderRows}
       </div>
+      <div class="card-body"><label>チーム内の投擲順</label>${S.teams.map((t,i) => buildMemberEditor(i, true)).join('')}</div>
       <div class="card-body" style="padding-top:0;">
         <button class="btn btn-primary btn-block" onclick="nextSet()">セット${nextSetNum}へ進む ▶</button>
         <button class="btn btn-gray btn-block" onclick="onUndo()" style="margin-top:8px;">直前の投擲を取り消す</button>
@@ -1053,7 +1073,7 @@ function buildPlaying() {
     const cells = visibleTurnNums.map(turnNum => {
       const item = turnMapGame[turnNum] && turnMapGame[turnNum][ti];
       if (!item) return `<td style="text-align:center;padding:3px 4px;"><span style="color:#d1d5db;font-size:10px;">—</span></td>`;
-      return `<td style="text-align:center;padding:3px 4px;">${makeThrowChip(item.h, color, ti, item.throwIdx)}</td>`;
+      return `<td style="text-align:center;padding:3px 4px;">${makeThrowChip(item.h, color, ti, item.throwIdx)}${memberButton(item.h, "live", -1, -1, t.id, item.throwIdx)}</td>`;
     }).join('');
     return `<tr style="border-bottom:1px solid #f8fafc;">
       <td style="padding:3px 6px 3px 0;font-size:11px;font-weight:800;color:${color};white-space:nowrap;${isActive?'text-decoration:underline;':''}">${escHtml(t.name)}</td>
@@ -1094,6 +1114,7 @@ function buildPlaying() {
         <span style="margin-left:auto;font-size:13px;color:#6b7280;">ターン ${Math.floor(S.turnCount / Math.max(1, S.teams.filter(t=>!t.isEliminated).length)) + 1}</span>
       </div>
       <div class="card-body">
+        ${currentMember(cur) ? `<div style="font-size:17px;font-weight:800;margin-bottom:6px;overflow-wrap:anywhere;">投擲者：${escHtml(currentMember(cur).name)}</div>` : ''}
         <div class="pin-grid">
           ${pinBtns}
           <button class="pin-btn miss" onclick="onThrow(0)" style="grid-column:span 2;aspect-ratio:unset;padding:8px 4px;font-size:14px;">ミス 0点</button>
@@ -1168,7 +1189,7 @@ function buildFinished() {
         if (h.points === 0) chip = `<span style="display:inline-flex;align-items:center;gap:1px;padding:2px 6px;border-radius:16px;font-size:10px;font-weight:800;background:#FEE2E2;color:#DC2626;">ミス ${intendedMark}</span>`;
         else if (h.burst) chip = `<span style="display:inline-flex;align-items:center;gap:1px;padding:2px 6px;border-radius:16px;font-size:10px;font-weight:800;background:#FEF3C7;color:#B45309;">${h.points}→25 ${intendedMark}</span>`;
         else chip = `<span style="display:inline-flex;align-items:center;gap:1px;padding:2px 6px;border-radius:16px;font-size:10px;font-weight:800;background:${color}18;color:${color};border:1px solid ${color}44;">${h.points} ${intendedMark}</span>`;
-        return chip;
+        return `<span>${chip}${memberButton(h, "result", -1, si, sc.teamId, hi)}</span>`;
       }).join(' ');
 
       return { sc, t, color, total, intendedRate, missAvoidRate, turnCount, chipRow, setDur };
@@ -1251,12 +1272,146 @@ function buildFinished() {
       </div>
     </div>
     ${setAnalysis}
+    ${buildMemberStats(S)}
     <div style="display:flex;gap:8px;margin-bottom:12px;">
       <button class="btn btn-primary" style="flex:1;" onclick="rematch()">同じメンバーで再戦</button>
       <button class="btn btn-gray" style="flex:1;" onclick="resetGame()">新しい試合</button>
     </div>
     ${buildOverlayInfo()}
   `;
+}
+
+
+// メンバーIDは名前や投擲順と独立。旧データにはメンバーを推測しない。
+function currentMember(team) {
+  const members = team.members || [];
+  return members.length ? members[team.history.length % members.length] : null;
+}
+function buildMemberEditor(teamIdx, next = false) {
+  const t = S.teams[teamIdx];
+  const members = (next ? t.nextMembers : null) || t.members || [];
+  const rows = members.map((m, i) => `<div class="member-row">
+    <span>${i + 1}</span>
+    ${next ? `<span style="flex:1;min-width:0;overflow-wrap:anywhere;">${escHtml(m.name)}</span>` : `<input type="text" data-member-team="${teamIdx}" data-member-id="${m.id}" value="${escHtml(m.name)}" maxlength="30" aria-label="${i+1}番目のメンバー名"/>`}
+    <button type="button" class="btn btn-xs" onclick="moveMember(${teamIdx},${i},${i-1},${next})" ${i === 0 ? 'disabled' : ''} aria-label="メンバーを上へ">↑</button>
+    <button type="button" class="btn btn-xs" onclick="moveMember(${teamIdx},${i},${i+1},${next})" ${i === members.length-1 ? 'disabled' : ''} aria-label="メンバーを下へ">↓</button>
+    ${next ? '' : `<button type="button" class="btn btn-xs" onclick="removeMember(${teamIdx},${i})" aria-label="メンバーを削除">×</button>`}
+  </div>`).join('');
+  return `<div class="member-editor"><div style="font-size:12px;overflow-wrap:anywhere;">${next ? escHtml(t.name) : 'メンバー・投擲順（任意）'}</div>${rows}
+    ${next ? (members.length ? '' : '<span class="member-label">メンバー未登録</span>') : `<button type="button" class="btn btn-sm" onclick="addMember(${teamIdx})">メンバーを追加</button>`}</div>`;
+}
+function addMember(teamIdx) {
+  if (S.phase !== 'setup') return;
+  captureSetupInputs();
+  const t = S.teams[teamIdx];
+  t.members = t.members || [];
+  const id = Math.max(-1, ...t.members.map(m => m.id)) + 1;
+  t.members.push({id, name: ''});
+  saveState(); render();
+}
+function removeMember(teamIdx, idx) {
+  if (S.phase !== 'setup') return;
+  captureSetupInputs(); S.teams[teamIdx].members.splice(idx, 1);
+  saveState(); render();
+}
+function moveMember(teamIdx, from, to, next = false) {
+  if (S.phase !== (next ? 'set_finished' : 'setup')) return;
+  captureSetupInputs();
+  const t = S.teams[teamIdx];
+  if (next && !t.nextMembers) t.nextMembers = JSON.parse(JSON.stringify(t.members || []));
+  const list = next ? t.nextMembers : t.members;
+  if (!list || to < 0 || to >= list.length || from < 0 || from >= list.length) return;
+  list.splice(to, 0, list.splice(from, 1)[0]);
+  saveState(); render();
+}
+function memberButton(h, scope, gi, si, teamId, hi) {
+  // 登録前・旧試合の投擲も「未記録」として明示し、必要なら修正できる。
+  const game = scope === 'history' ? S.history[gi] : S;
+  if (!(game.teams.find(t => t.id === teamId)?.members || []).length && h.memberId == null) return '';
+  return `<button class="member-label" onclick="openMemberCorrection('${scope}',${gi},${si},${teamId},${hi})" aria-label="投擲者を修正">${escHtml(h.memberName || '未記録')} ✎</button>`;
+}
+function correctionTargets(scope, gi, si, teamId, hi) {
+  const g = scope === 'history' ? S.history[gi] : S;
+  if (!g) return null;
+  const t = g.teams.find(t => t.id === teamId);
+  if (!t) return null;
+  const result = scope === 'live' ? null : g.setResults?.[si];
+  const h = scope === 'live' || si < 0 ? t.history[hi] : result?.scores.find(sc => sc.teamId === teamId)?.throws?.[hi];
+  if (!h) return null;
+  const targets = [h];
+  const lastSetNum = scope === 'history' ? (g.currentSet || g.setResults?.at(-1)?.setNum) : S.currentSet;
+  // 最終セットはteams.historyとsetResultsの両方に保存される。
+  if (scope !== 'live' && result && result.setNum === lastSetNum && t.history[hi]) targets.push(t.history[hi]);
+  if (scope === 'live') {
+    const sc = g.setResults?.find(sr => sr.setNum === S.currentSet)?.scores.find(sc => sc.teamId === teamId);
+    if (sc?.throws?.[hi]) targets.push(sc.throws[hi]);
+  }
+  return {g, t, h, targets};
+}
+let _memberCorrection = null;
+function openMemberCorrection(scope, gi, si, teamId, hi) {
+  const data = correctionTargets(scope, gi, si, teamId, hi);
+  if (!data) return;
+  _memberCorrection = {scope, gi, si, teamId, hi};
+  document.getElementById('member-correction-title').textContent = `${data.t.name}・${hi + 1}投目の投擲者`;
+  document.getElementById('member-correction-select').innerHTML = `<option value="">未記録</option>` + (data.t.members || []).map(m => `<option value="${m.id}" ${m.id === data.h.memberId ? 'selected' : ''}>${escHtml(m.name)}</option>`).join('');
+  document.getElementById('modal-member').classList.add('open');
+}
+function correctThrowMember(scope, gi, si, teamId, hi, memberId) {
+  const data = correctionTargets(scope, gi, si, teamId, hi);
+  if (!data) return false;
+  const m = (data.t.members || []).find(m => m.id === memberId);
+  if (memberId != null && !m) return false;
+  data.targets.forEach(h => {
+    if (m) { h.memberId = m.id; h.memberName = m.name; }
+    else { delete h.memberId; delete h.memberName; }
+  });
+  // 終了画面と保存済み履歴の同じ試合を同期する。
+  if (scope !== 'history' && S.phase === 'finished') {
+    const archived = S.history.find(g => g.id === S.archiveId);
+    if (archived) { archived.teams = JSON.parse(JSON.stringify(S.teams)); archived.setResults = JSON.parse(JSON.stringify(S.setResults)); }
+  } else if (scope === 'history' && data.g.id === S.archiveId && S.phase === 'finished') {
+    S.teams = JSON.parse(JSON.stringify(data.g.teams)); S.setResults = JSON.parse(JSON.stringify(data.g.setResults));
+  }
+  // 均一モードの取り消し用コピーにも訂正を反映。
+  if (scope !== 'history') [S.uniformBeforeThrow, S.previousSetUndo].filter(Boolean).forEach(snap => {
+    const setNum = scope === 'live' ? S.currentSet : S.setResults[si].setNum;
+    const srh = snap.setResults?.find(sr => sr.setNum === setNum)?.scores.find(sc => sc.teamId === teamId)?.throws?.[hi];
+    if (srh) { if (m) {srh.memberId=m.id;srh.memberName=m.name;} else {delete srh.memberId;delete srh.memberName;} }
+    if (snap.currentSet !== setNum) return;
+    const sh = snap.teams.find(t => t.id === teamId)?.history?.[hi];
+    if (sh) { if (m) {sh.memberId=m.id;sh.memberName=m.name;} else {delete sh.memberId;delete sh.memberName;} }
+  });
+  saveState(); render(); return true;
+}
+function saveMemberCorrection() {
+  if (!_memberCorrection) return;
+  const {scope,gi,si,teamId,hi} = _memberCorrection;
+  const value = document.getElementById('member-correction-select').value;
+  correctThrowMember(scope,gi,si,teamId,hi,value === '' ? null : Number(value));
+  closeModal('modal-member'); _memberCorrection = null;
+}
+function memberThrows(g, t) {
+  const rows = (g.setResults || []).flatMap((sr, si) => (sr.scores.find(sc => sc.teamId === t.id)?.throws || []).map((h,hi) => ({h, set:sr.setNum || si+1, hi, si})));
+  const current = g.currentSet || g.setResults?.at(-1)?.setNum || 1;
+  if (!(g.setResults || []).some(sr => sr.setNum === current)) (t.history || []).forEach((h,hi) => rows.push({h,set:current,hi,si:-1}));
+  return rows;
+}
+function buildMemberStats(g, gi = -1) {
+  const cards = g.teams.filter(t => (t.members || []).length).map(t => {
+    const all = memberThrows(g,t);
+    const rows = [...t.members, ...(all.some(r => r.h.memberId == null) ? [{id:null,name:'未記録'}] : [])].map(m => {
+      const throws = all.filter(r => (r.h.memberId ?? null) === m.id);
+      const misses = throws.filter(r => r.h.points === 0).length;
+      const detail = throws.map(r => `<span style="display:inline-block;margin:2px 6px 2px 0;">S${r.set}・${r.hi+1}投目：${r.h.points === 0 ? 'ミス' : r.h.points+'点'+(r.h.burst?'（バースト）':'')}${memberButton(r.h, gi >= 0 ? 'history' : r.si < 0 ? 'live' : 'result', gi, r.si, t.id, r.hi)}</span>`).join('');
+      return `<tr><td style="overflow-wrap:anywhere;">${escHtml(m.name)}</td><td>${throws.length}</td><td>${misses}</td></tr><tr><td colspan="3" style="text-align:left;font-size:11px;">${detail || '投擲なし'}</td></tr>`;
+    }).join('');
+    return `<div class="card"><div class="card-header"><span class="card-title" style="overflow-wrap:anywhere;">${escHtml(t.name)}・個人記録</span></div><div class="member-table-wrap"><table class="hist-table"><thead><tr><th>メンバー</th><th>投擲数</th><th>ミス数</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }).join('');
+  return cards;
+}
+function buildStatsTab() {
+  return buildMemberStats(S) || '<div class="card"><div class="card-body">チームにメンバーを登録すると個人記録を確認できます。</div></div>';
 }
 
 // ─── スコアボードタブ ────────────────────────────────────────────
@@ -1429,7 +1584,7 @@ function buildHistoryTab() {
             } else {
               chip = `<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:800;background:${tt.color}18;color:${tt.color};border:1.5px solid ${tt.color}44;">${h.points}</span>`;
             }
-            return `<td style="text-align:center;padding:4px 6px;">${chip}</td>`;
+            return `<td style="text-align:center;padding:4px 6px;">${chip}${memberButton(h, "history", gi, si, tt.sc.teamId, ti)}</td>`;
           }).join('');
           return `<tr style="border-bottom:1px solid #f8fafc;">
             <td style="text-align:center;padding:4px 6px;font-size:11px;color:#9ca3af;font-weight:600;">${ti+1}</td>
@@ -1470,6 +1625,7 @@ function buildHistoryTab() {
           </table>
         </div>
         ${detailHtml}
+        ${isExpanded ? buildMemberStats(g, gi) : ''}
         <div style="padding:8px 12px;border-top:1px solid #f0f4f8;text-align:center;">
           <button class="btn btn-gray btn-xs" onclick="toggleHistoryDetail(${gameId})">
             ${isExpanded ? '▲ 詳細を閉じる' : '▼ 投擲詳細を見る'}
@@ -1517,6 +1673,10 @@ function captureSetupInputs() {
     if (!input) continue;
     S.teams[i].name = input.value;
   }
+  document.querySelectorAll('[data-member-team]').forEach(input => {
+    const m = S.teams[Number(input.dataset.memberTeam)]?.members?.find(m => m.id === Number(input.dataset.memberId));
+    if (m) m.name = input.value;
+  });
   const regulation = document.getElementById('reg-value');
   if (regulation) {
     const value = normalizedRegValue(regulation.value, S.settings.regMode);
@@ -1705,4 +1865,5 @@ render();
 </script>
 </body>
 </html>
+
 
