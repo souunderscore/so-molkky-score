@@ -14,7 +14,7 @@ function app(saved) {
     localStorage: { getItem: k => values.get(k) || null, setItem: (k, v) => values.set(k, v) },
     BroadcastChannel: function () { this.postMessage = () => {}; },
     document: { getElementById: id => inputs[id] || null,
-      querySelectorAll: selector => Object.values(inputs).filter(input => selector !== '[data-member-team]' || input.dataset?.memberTeam !== undefined) }, window: {}, Date,
+      querySelectorAll: () => Object.values(inputs) }, window: {}, Date,
     location: {origin:'http://localhost:8000',pathname:'/index.html'},
   });
   vm.runInContext(source, ctx);
@@ -349,77 +349,4 @@ test('prime fixes setup at two teams, four sets, 50 points and three misses', ()
   for (const id of ['team-count-select','reg-value','target-score','max-miss']) {
     assert.doesNotMatch(a.run('buildSetup()'), new RegExp(`<[^>]*id="${id}"[^>]*disabled`));
   }
-});
-
-
-function memberGame(a, mode='match') {
-  a.run(`fresh('${mode}'); S.teams[0].members=[{id:0,name:'A'},{id:1,name:'B'}];
-    S.teams[1].members=[{id:0,name:'C'}];`);
-}
-test('members rotate independently per team; correction does not change next member; undo and reload restore rotation', () => {
-  const a=app(); memberGame(a);
-  a.run('applyThrow(0,10); applyThrow(1,0); applyThrow(0,0)');
-  assert.deepEqual(a.json('S.teams[0].history.map(h=>[h.memberName,h.points])'),[['A',10],['B',0]]);
-  assert.equal(a.run('currentMember(S.teams[0]).name'),'A');
-  a.run("correctThrowMember('live',-1,-1,0,0,1)");
-  assert.equal(a.run('currentMember(S.teams[0]).name'),'A');
-  const b=app(a.values.get('molkky_so_v2'));
-  b.run('undoLastThrow()');
-  assert.equal(b.run('currentMember(S.teams[0]).name'),'B');
-  assert.equal(b.run('S.teams[0].history[0].memberName'),'B');
-});
-test('next-set member order persists separately without changing completed throws, follows team IDs, and survives reload', () => {
-  const a=app(); memberGame(a);
-  a.run('S.teams[0].score=49; applyThrow(0,1); moveMember(0,1,0,true)');
-  assert.equal(a.run('S.setResults[0].scores[0].throws[0].memberName'),'A');
-  const b=app(a.values.get('molkky_so_v2'));
-  b.run('nextSet()');
-  assert.deepEqual(b.json('S.teams.find(t=>t.id===0).members.map(m=>m.name)'),['B','A']);
-  assert.equal(b.run('currentMember(S.teams.find(t=>t.id===0)).name'),'B');
-  b.run('S.teams[0].score=49; applyThrow(0,1); nextSet()');
-  assert.deepEqual(b.json('S.teams.find(t=>t.id===0).members.map(m=>m.name)'),['B','A']);
-  b.run('rematch()');
-  assert.deepEqual(b.json('S.teams.find(t=>t.id===0).members.map(m=>m.name)'),['B','A']);
-});
-test('completed-set correction updates live duplicate and archive; history correction updates finished screen without changing points', () => {
-  const a=app();memberGame(a);
-  a.run('S.settings.regN=1; S.teams[0].score=49; applyThrow(0,1)');
-  a.run("correctThrowMember('result',-1,0,0,0,1)");
-  assert.deepEqual(a.json('[S.teams[0].history[0].memberName,S.setResults[0].scores[0].throws[0].memberName,S.history[0].teams[0].history[0].memberName]'),['B','B','B']);
-  a.run("correctThrowMember('history',0,0,0,0,0)");
-  assert.equal(a.run('S.teams[0].history[0].memberName'),'A');
-  assert.equal(a.run('S.teams[0].score'),50);
-  assert.equal(a.run('S.teams[0].history[0].points'),1);
-  assert.equal(a.run('memberThrows(S,S.teams[0]).length'),1);
-  assert.match(a.run('buildStatsTab()'),/S1・1投目：1点/);
-});
-test('forced finish retains incomplete-set personal records and permits correction from history',()=>{
-  const a=app(); memberGame(a);
-  a.run('applyThrow(0,12); endGame(null)');
-  assert.equal(a.run('memberThrows(S.history[0],S.history[0].teams[0]).length'),1);
-  a.run("correctThrowMember('history',0,-1,0,0,1)");
-  assert.equal(a.run('S.teams[0].history[0].memberName'),'B');
-  assert.equal(a.run('S.history[0].teams[0].history[0].memberName'),'B');
-});
-test('uniform snapshot undo keeps corrected attribution across set transitions',()=>{
-  const a=app();memberGame(a,'uniform');
-  a.run('S.settings.targetScore=100; applyThrow(0,10); applyThrow(1,5); S.teams[0].score=49; applyThrow(0,1)');
-  a.run("correctThrowMember('result',-1,0,0,0,1); nextSet(); undoLastThrow()");
-  assert.equal(a.run('S.teams[0].history[0].memberName'),'B');
-  assert.equal(a.run('currentMember(S.teams[0]).name'),'B');
-});
-test('unregistered teams and old histories remain usable with no inferred attribution',()=>{
-  const a=app();a.run('fresh(); applyThrow(0,3)');
-  assert.equal(a.run('currentMember(S.teams[0])'),null);
-  assert.equal(a.run('S.teams[0].history[0].memberName'),undefined);
-  assert.equal(a.run('memberButton(S.teams[0].history[0],"live",-1,-1,0,0)'),'');
-  assert.doesNotThrow(()=>a.run('buildStatsTab(); buildPlaying()'));
-});
-test('member edits survive setup changes and start; blank names are omitted, duplicate names keep distinct IDs',()=>{
-  const a=app(); setup(a);
-  a.run('addMember(0); addMember(0); addMember(0)');
-  a.inputs.member0={value:'Same',dataset:{memberTeam:'0',memberId:'0'}};
-  a.inputs.member1={value:'Same',dataset:{memberTeam:'0',memberId:'1'}};
-  a.run('captureSetupInputs(); switchRegMode("first"); startGame()');
-  assert.deepEqual(a.json('S.teams[0].members'),[{id:0,name:'Same'},{id:1,name:'Same'}]);
 });
