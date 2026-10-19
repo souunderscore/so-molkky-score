@@ -10,11 +10,12 @@ const source = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)]
 function app(saved) {
   const values = new Map(saved ? [['molkky_so_v2', saved]] : []);
   const inputs = {};
+  const alerts=[];
   const ctx = vm.createContext({
     localStorage: { getItem: k => values.get(k) || null, setItem: (k, v) => values.set(k, v) },
     BroadcastChannel: function () { this.postMessage = () => {}; },
     document: { getElementById: id => inputs[id] || null,
-      querySelectorAll: () => Object.values(inputs) }, window: {}, Date,
+      querySelectorAll: selector => Object.values(inputs).filter(input => selector !== '[data-member-team]' || input.dataset?.memberTeam !== undefined) }, window: {}, Date, alert:msg=>alerts.push(msg),
     location: {origin:'http://localhost:8000',pathname:'/index.html'},
   });
   vm.runInContext(source, ctx);
@@ -34,7 +35,7 @@ function app(saved) {
   return {
     run: code => vm.runInContext(code, ctx),
     json: code => JSON.parse(vm.runInContext(`JSON.stringify(${code})`, ctx)),
-    inputs, values,
+    inputs, values, alerts,
   };
 }
 
@@ -349,4 +350,122 @@ test('prime fixes setup at two teams, four sets, 50 points and three misses', ()
   for (const id of ['team-count-select','reg-value','target-score','max-miss']) {
     assert.doesNotMatch(a.run('buildSetup()'), new RegExp(`<[^>]*id="${id}"[^>]*disabled`));
   }
+});
+
+
+function teamRecordApp(mode='match', count=2) {
+  const a=app();a.run(`fresh('${mode}',${count});
+    S.teams[0].members=[{id:0,name:'A',active:true},{id:1,name:'B',active:false},{id:2,name:'C',active:true}];
+    S.startedAt=1000; beginSheetSet();`);return a;
+}
+function play(a,points) {for(const p of points)a.run(`applyThrow(S.currentTeamIdx,${p})`);}
+test('optional rosters rotate active members, snapshot identity per throw, undo and reload',()=>{
+  const a=teamRecordApp();play(a,[12,1,0,1]);
+  assert.deepEqual(a.json('S.teams[0].history.map(h=>[h.memberId,h.memberName,h.points])'),[[0,'A',12],[2,'C',0]]);
+  assert.equal(a.run('S.teams[1].history[0].memberId'),undefined);
+  assert.equal(a.run('currentMember(S.teams[0]).name'),'A');
+  a.run('undoLastThrow();undoLastThrow()');assert.equal(a.run('currentMember(S.teams[0]).name'),'C');
+  const b=app(a.values.get('molkky_so_v2'));assert.equal(b.run('currentMember(S.teams[0]).name'),'C');
+  assert.equal(b.run('typeof correctThrowMember'),'undefined');
+});
+test('roster selection and next-set ordering persist without altering completed sheet',()=>{
+  const a=teamRecordApp();play(a,[10,1,10,1,10,1,10,1,10]);
+  assert.equal(a.run('S.phase'),'set_finished');
+  a.run('moveMember(0,2,0,true); toggleMemberParticipation(0,1,true)');
+  const b=app(a.values.get('molkky_so_v2'));b.run('nextSet()');
+  assert.deepEqual(b.json('S.teams.find(t=>t.id===0).members.map(m=>[m.name,m.active])'),[['C',true],['A',false],['B',false]]);
+  assert.equal(b.run('S.setResults[0].scores.find(sc=>sc.teamId===0).members[0].name'),'A');
+  assert.equal(b.run('mayEditSet(1)'),false);assert.equal(b.run('mayEditSet(2)'),true);
+  b.run('rematch()');assert.equal(b.run('currentMember(S.teams.find(t=>t.id===0)).name'),'C');
+});
+test('registered team requires at least one participant; unregistered opponent remains valid',()=>{
+  const a=teamRecordApp();a.run("S.phase='setup'; S.teams[0].members.forEach(m=>m.active=false)");
+  assert.equal(a.run('validMemberSelection()'),false);assert.equal(a.alerts.length,1);
+  a.run('S.teams[0].members[1].active=true');assert.equal(a.run('validMemberSelection()'),true);
+});
+test('member name inputs survive setup actions and duplicate names retain separate IDs',()=>{
+  const a=app();setup(a);a.run('addMember(0);addMember(0);addMember(0)');
+  a.inputs.a={value:'Same',dataset:{memberTeam:'0',memberId:'0'}};
+  a.inputs.b={value:'Same',dataset:{memberTeam:'0',memberId:'1'}};
+  a.run('moveMember(0,1,0); switchRegMode("first"); startGame()');
+  assert.deepEqual(a.json('S.teams[0].members.map(m=>[m.id,m.name])'),[[1,'Same'],[0,'Same']]);
+});
+test('score correction recalculates later totals/burst and preserves member attribution',()=>{
+  const a=teamRecordApp();play(a,[12,1,12,1,12,1,12]);
+  const memberBefore=a.json('S.teams[0].history.map(h=>h.memberId)');
+  a.run('applyReplayedSet(proposeScoreEdit(0,0,1))');
+  assert.equal(a.run('S.teams[0].score'),37);assert.deepEqual(a.json('S.teams[0].history.map(h=>h.memberId)'),memberBefore);
+  assert.equal(a.run('S.teams[0].history[3].prevScore'),25);
+  a.run('undoLastThrow()');assert.equal(a.run('S.teams[0].score'),25);
+  assert.equal(a.run('currentMember(S.teams[0]).name'),'C');
+});
+test('normal custom target bursts reset to 25; uniform bursts reset from interval goal',()=>{
+  const a=teamRecordApp();a.run('S.settings.targetScore=60');play(a,[12,1,12,1,12,1,12,1,10,1,1]);
+  a.run('applyReplayedSet(proposeScoreEdit(0,5,3))');assert.equal(a.run('S.teams[0].score'),25);
+  const b=teamRecordApp('uniform');b.run('S.settings.targetScore=150;S.currentSet=2;S.teams[0].score=98;S.teams[1].score=70;beginSheetSet()');
+  play(b,[1,1]);b.run('applyReplayedSet(proposeScoreEdit(0,0,3))');assert.equal(b.run('S.teams[0].score'),75);
+  assert.equal(b.run('S.teams[0].history[0].burst'),true);
+});
+test('correction that ends an earlier turn identifies every later record to discard',()=>{
+  const a=teamRecordApp();play(a,[10,1,10,1,10,1,10,1,8,1,2]);
+  assert.equal(a.run('S.phase'),'set_finished');
+  a.run('const proposed=proposeScoreEdit(0,0,12)');
+  assert.equal(a.run('proposed.removed'),2);assert.equal(a.run('S.teams[0].history.length'),6);
+  a.run('applyReplayedSet(proposed)');assert.equal(a.run('S.teams[0].history.length'),5);assert.equal(a.run('S.teams[1].history.length'),4);
+  assert.equal(a.run('S.setResults.length'),1);assert.equal(a.run('S.teams[0].setWins'),1);assert.equal(a.run('S.teams[0].setTotalScore'),50);
+});
+test('correcting a winning throw resumes play and removes stale results/wins',()=>{
+  const a=teamRecordApp();play(a,[10,1,10,1,10,1,10,1,10]);
+  a.run('applyReplayedSet(proposeScoreEdit(0,4,9))');
+  assert.equal(a.run('S.phase'),'playing');assert.equal(a.run('S.setResults.length'),0);
+  assert.equal(a.run('S.teams[0].score'),49);assert.equal(a.run('S.teams[0].setWins'),0);assert.equal(a.run('S.teams[0].setTotalScore'),0);
+  assert.equal(a.run('S.currentTeamIdx'),1);
+});
+test('miss correction recalculates elimination and the score awarded to survivor',()=>{
+  const a=teamRecordApp();play(a,[0,5,0,5,1,5]);
+  a.run('const r=proposeScoreEdit(0,2,0)');assert.equal(a.run('r.removed'),1);
+  a.run('applyReplayedSet(r)');assert.equal(a.run('S.teams[0].isEliminated'),true);assert.equal(a.run('S.teams[1].score'),50);
+  a.run('applyReplayedSet(proposeScoreEdit(0,2,2))');assert.equal(a.run('S.phase'),'playing');assert.equal(a.run('S.teams[1].score'),10);assert.equal(a.run('S.teams[0].missStreak'),0);
+});
+test('three-team changed elimination detects missing turns instead of silently reassigning throws',()=>{
+  const a=teamRecordApp('match',3);a.run('S.settings.maxMiss=1');play(a,[0,3,4,5]);
+  a.run('const r=proposeScoreEdit(0,0,2)');
+  assert.equal(a.run('r.removed'),1);assert.equal(a.run('r.teams[0].history[0].memberName'),'A');
+  a.run('applyReplayedSet(r)');assert.equal(a.run('S.currentTeamIdx'),0);assert.equal(a.run('S.teams[1].score'),3);
+});
+test('final-set correction replaces archive, and reopening match removes stale finished record',()=>{
+  const a=teamRecordApp();a.run('S.settings.regN=1');play(a,[10,1,10,1,10,1,10,1,10]);
+  assert.equal(a.run('S.history.length'),1);
+  a.run('applyReplayedSet(proposeScoreEdit(1,0,2))');assert.equal(a.run('S.history.length'),1);assert.equal(a.run('S.history[0].teams[1].history[0].points'),2);
+  a.run('applyReplayedSet(proposeScoreEdit(0,4,9))');assert.equal(a.run('S.phase'),'playing');assert.equal(a.run('S.history.length'),0);
+});
+test('forced finish keeps partial-set records and remains finished after valid correction',()=>{
+  const a=teamRecordApp();play(a,[12,3]);a.run('endGame(null);applyReplayedSet(proposeScoreEdit(0,0,10))');
+  assert.equal(a.run('S.phase'),'finished');assert.equal(a.run('S.history.length'),1);
+  assert.equal(a.run('getSheetSets(S.history[0])[0].scores[0].throws[0].points'),10);
+});
+test('six-team sheet includes unregistered teams and retains old records without guessed members',()=>{
+  const a=teamRecordApp('match',6);play(a,[12,1,2,3,4,5]);
+  assert.equal(a.run('getSheetSets(S)[0].scores.length'),6);
+  const html=a.run('buildSheetTable(S,getSheetSets(S)[0],true)');assert.match(html,/A/);assert.match(html,/投擲者/);
+  a.run('S.teams[0].history[0]={points:5,prevScore:0,timestamp:1}; S.teams[0].members=[]');
+  assert.equal(a.run('sheetColumns(getSheetSets(S)[0].scores[0])[0].id'),null);
+});
+test('sheet UI escapes names; renderer exposes no member correction controls',()=>{
+  const a=teamRecordApp();a.run("S.teams[0].name='<script>bad</script>';S.teams[0].members[0].name='<b>name</b>'");play(a,[3]);
+  const html=a.run('buildSheetTable(S,getSheetSets(S)[0],true)');assert.match(html,/&lt;script&gt;/);assert.match(html,/&lt;b&gt;/);assert.doesNotMatch(html,/<script>/);
+  assert.doesNotMatch(a.run('buildMemberEditor(0,true)'),/投擲者を修正/);
+});
+
+test('new elimination in multi-team match rewinds at that throw before later valid opponents',()=>{
+  const a=teamRecordApp('match',3);a.run('S.settings.maxMiss=1');play(a,[1,3,4,2,3,4]);
+  a.run('const r=proposeScoreEdit(0,0,0)');assert.equal(a.run('r.consumed'),1);assert.equal(a.run('r.removed'),5);
+  assert.equal(a.run('r.currentTeamIdx'),1);assert.equal(a.run('S.teams[0].isEliminated'),false);
+  a.run('applyReplayedSet(r)');assert.equal(a.run('S.teams[0].isEliminated'),true);assert.equal(a.run('S.teams[1].history.length'),0);
+});
+test('uniform edited set keeps correct start scores and roster when next-set boundary is undone',()=>{
+  const a=teamRecordApp('uniform');a.run('S.settings.targetScore=150');play(a,[10,1,10,1,10,1,10,1,10]);
+  a.run('applyReplayedSet(proposeScoreEdit(1,0,2));nextSet();undoLastThrow()');
+  assert.equal(a.run('S.currentSet'),1);assert.equal(a.run('S.sheetSet.setNum'),1);
+  assert.equal(a.run('S.teams.find(t=>t.id===0).history.length'),4);
 });
