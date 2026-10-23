@@ -7,8 +7,9 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const source = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)]
   .map(m => m[1]).filter(Boolean).at(-1).replace(/render\(\);\s*$/, '');
 
-function app(saved) {
+function app(saved, savedTimer) {
   const values = new Map(saved ? [['molkky_so_v2', saved]] : []);
+  if(savedTimer) values.set('molkky_throw_timer_v1',savedTimer);
   const inputs = {};
   const alerts=[];
   const ctx = vm.createContext({
@@ -468,4 +469,47 @@ test('uniform edited set keeps correct start scores and roster when next-set bou
   a.run('applyReplayedSet(proposeScoreEdit(1,0,2));nextSet();undoLastThrow()');
   assert.equal(a.run('S.currentSet'),1);assert.equal(a.run('S.sheetSet.setNum'),1);
   assert.equal(a.run('S.teams.find(t=>t.id===0).history.length'),4);
+});
+
+
+function timerApp() {
+  const a=app();a.run('fresh();let testTimerNow=1000;throwTimerNow=()=>testTimerNow;');return a;
+}
+test('manual timer stops precisely and next start begins at zero rather than resuming',()=>{
+  const a=timerApp();a.run('toggleThrowTimer();testTimerNow=13789;toggleThrowTimer()');
+  assert.equal(a.run('throwTimerText()'),'12.7秒');assert.equal(a.run('throwTimer.startedAt'),null);
+  a.run('testTimerNow=30000');assert.equal(a.run('throwTimerElapsed()'),12789);
+  a.run('toggleThrowTimer()');assert.equal(a.run('throwTimerElapsed()'),0);
+  a.run('testTimerNow=31200');assert.equal(a.run('throwTimerText()'),'1.2秒');
+});
+test('reset restarts running timer and keeps a stopped timer stopped',()=>{
+  const a=timerApp();a.run('toggleThrowTimer();testTimerNow=4500;resetThrowTimer()');
+  assert.equal(a.run('throwTimer.startedAt'),4500);assert.equal(a.run('throwTimerText()'),'0.0秒');
+  a.run('testTimerNow=6000');assert.equal(a.run('throwTimerText()'),'1.5秒');
+  a.run('toggleThrowTimer();resetThrowTimer();testTimerNow=9000');
+  assert.equal(a.run('throwTimer.startedAt'),null);assert.equal(a.run('throwTimerElapsed()'),0);
+});
+test('scoring, undo and set advancement leave manual timer unchanged even on set win',()=>{
+  const a=timerApp();a.run('toggleThrowTimer();testTimerNow=6100;applyThrow(0,12);applyThrow(1,1);undoLastThrow()');
+  assert.equal(a.run('throwTimerText()'),'5.1秒');
+  a.run('S.teams[0].score=49;S.currentTeamIdx=0;applyThrow(0,1)');
+  assert.equal(a.run('S.phase'),'set_finished');assert.equal(a.run('throwTimer.startedAt'),1000);
+  assert.match(a.run('buildSetFinished()'),/throw-timer-toggle/);
+  a.run('nextSet();testTimerNow=8000');assert.equal(a.run('throwTimerText()'),'7.0秒');
+});
+test('running and stopped timer state are restored independently of scoring state',()=>{
+  const a=timerApp();a.run('toggleThrowTimer();testTimerNow=5000');
+  const saved=a.values.get('molkky_throw_timer_v1');const b=app(undefined,saved);
+  b.run('throwTimerNow=()=>9000');assert.equal(b.run('throwTimerText()'),'8.0秒');
+  b.run('toggleThrowTimer()');
+  const c=app(undefined,b.values.get('molkky_throw_timer_v1'));
+  c.run('throwTimerNow=()=>99999');assert.equal(c.run('throwTimerText()'),'8.0秒');
+});
+test('new match, rematch and reset clear previous timing; invalid saved timer recovers',()=>{
+  const a=timerApp();a.run('toggleThrowTimer();testTimerNow=10000;rematch()');
+  assert.equal(a.run('throwTimerElapsed()'),0);assert.equal(a.run('throwTimer.startedAt'),null);
+  a.run('toggleThrowTimer();testTimerNow=12000;resetGame()');assert.equal(a.run('throwTimer.startedAt'),null);
+  for(const saved of ['invalid','{"elapsedMs":-1,"startedAt":null}','{"elapsedMs":0,"startedAt":"bad"}']){
+    const b=app(undefined,saved);assert.equal(b.run('throwTimerElapsed()'),0);
+  }
 });
