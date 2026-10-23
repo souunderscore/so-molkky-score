@@ -1637,7 +1637,7 @@ function loadThrowTimer() {
     const t=JSON.parse(localStorage.getItem(THROW_TIMER_KEY));
     if(t && Number.isFinite(t.elapsedMs) && t.elapsedMs>=0 &&
        (t.startedAt===null || (Number.isFinite(t.startedAt)&&t.startedAt>=0))) {
-      return {elapsedMs:t.elapsedMs,startedAt:t.startedAt};
+      return {elapsedMs:t.elapsedMs,startedAt:t.startedAt,paused:t.paused===true||(t.startedAt===null&&t.elapsedMs>0)};
     }
   } catch(e) {}
   return {elapsedMs:0,startedAt:null};
@@ -1646,12 +1646,12 @@ function saveThrowTimer() {
   try {localStorage.setItem(THROW_TIMER_KEY,JSON.stringify(throwTimer));}catch(e){}
 }
 function throwTimerElapsed(now=throwTimerNow()) {
-  return throwTimer.startedAt===null ? throwTimer.elapsedMs : Math.max(0,now-throwTimer.startedAt);
+  return throwTimer.startedAt===null ? throwTimer.elapsedMs : throwTimer.elapsedMs+Math.max(0,now-throwTimer.startedAt);
 }
 function throwTimerText(ms=throwTimerElapsed()) { return (Math.floor(ms/100)/10).toFixed(1)+'秒'; }
 function toggleThrowTimer() {
-  if(throwTimer.startedAt===null) throwTimer={elapsedMs:0,startedAt:throwTimerNow()};
-  else throwTimer={elapsedMs:throwTimerElapsed(),startedAt:null};
+  if(throwTimer.startedAt===null) throwTimer={elapsedMs:throwTimer.elapsedMs,startedAt:throwTimerNow(),paused:false};
+  else throwTimer={elapsedMs:throwTimerElapsed(),startedAt:null,paused:true};
   saveThrowTimer();syncThrowTimer();
 }
 function resetThrowTimer() {
@@ -1663,10 +1663,11 @@ function clearThrowTimer() {
   if(throwTimerInterval!==null)clearInterval(throwTimerInterval);
   throwTimerInterval=null;
 }
+function throwTimerButtonLabel() { return throwTimer.startedAt!==null?'停止':throwTimer.paused?'再開':'開始'; }
 function buildThrowTimer() {
   return `<div class="throw-timer" aria-label="投擲タイマー">
     <div class="throw-timer-readout"><span class="throw-timer-label">⏱ 投擲時間</span><output id="throw-timer-value" class="throw-timer-value" aria-label="経過時間">${throwTimerText()}</output></div>
-    <button type="button" id="throw-timer-toggle" class="btn ${throwTimer.startedAt===null?'btn-blue':'btn-orange'}" onclick="toggleThrowTimer()">${throwTimer.startedAt===null?'開始':'停止'}</button>
+    <button type="button" id="throw-timer-toggle" class="btn ${throwTimer.startedAt===null?'btn-blue':'btn-orange'}" onclick="toggleThrowTimer()">${throwTimerButtonLabel()}</button>
     <button type="button" class="btn btn-gray throw-timer-reset" onclick="resetThrowTimer()">リセット</button>
   </div>`;
 }
@@ -1679,7 +1680,7 @@ function syncThrowTimer() {
   const button=document.getElementById('throw-timer-toggle');
   if(button){
     const running=throwTimer.startedAt!==null;
-    button.textContent=running?'停止':'開始';
+    button.textContent=throwTimerButtonLabel();
     button.classList.toggle('btn-blue',!running);button.classList.toggle('btn-orange',running);
   }
   if(throwTimerInterval!==null)clearInterval(throwTimerInterval);
@@ -2139,6 +2140,7 @@ render();
 </script>
 </body>
 </html>
+
 
 
 
