@@ -475,12 +475,15 @@ test('uniform edited set keeps correct start scores and roster when next-set bou
 function timerApp() {
   const a=app();a.run('fresh();let testTimerNow=1000;throwTimerNow=()=>testTimerNow;');return a;
 }
-test('manual timer stops precisely and next start begins at zero rather than resuming',()=>{
+test('manual timer pauses and resumes without counting paused time',()=>{
   const a=timerApp();a.run('toggleThrowTimer();testTimerNow=13789;toggleThrowTimer()');
   assert.equal(a.run('throwTimerText()'),'12.7秒');assert.equal(a.run('throwTimer.startedAt'),null);
   a.run('testTimerNow=30000');assert.equal(a.run('throwTimerElapsed()'),12789);
-  a.run('toggleThrowTimer()');assert.equal(a.run('throwTimerElapsed()'),0);
-  a.run('testTimerNow=31200');assert.equal(a.run('throwTimerText()'),'1.2秒');
+  assert.equal(a.run('throwTimerButtonLabel()'),'再開');
+  a.run('toggleThrowTimer()');assert.equal(a.run('throwTimerElapsed()'),12789);
+  a.run('testTimerNow=31200');assert.equal(a.run('throwTimerText()'),'13.9秒');
+  a.run('toggleThrowTimer();testTimerNow=40000;toggleThrowTimer();testTimerNow=41100;toggleThrowTimer()');
+  assert.equal(a.run('throwTimerElapsed()'),15089);
 });
 test('reset restarts running timer and keeps a stopped timer stopped',()=>{
   const a=timerApp();a.run('toggleThrowTimer();testTimerNow=4500;resetThrowTimer()');
@@ -512,4 +515,23 @@ test('new match, rematch and reset clear previous timing; invalid saved timer re
   for(const saved of ['invalid','{"elapsedMs":-1,"startedAt":null}','{"elapsedMs":0,"startedAt":"bad"}']){
     const b=app(undefined,saved);assert.equal(b.run('throwTimerElapsed()'),0);
   }
+});
+
+
+
+test('paused timing resumes after reload and reset restores the start label',()=>{
+  const a=timerApp();a.run('toggleThrowTimer();testTimerNow=5500;toggleThrowTimer()');
+  const b=app(undefined,a.values.get('molkky_throw_timer_v1'));
+  b.run('let resumedNow=20000;throwTimerNow=()=>resumedNow');
+  assert.equal(b.run('throwTimerButtonLabel()'),'再開');
+  b.run('toggleThrowTimer();resumedNow=21000');assert.equal(b.run('throwTimerText()'),'5.5秒');
+  const c=app(undefined,b.values.get('molkky_throw_timer_v1'));c.run('throwTimerNow=()=>22000');
+  assert.equal(c.run('throwTimerText()'),'6.5秒');
+  c.run('toggleThrowTimer();resetThrowTimer()');assert.equal(c.run('throwTimerButtonLabel()'),'開始');assert.equal(c.run('throwTimerElapsed()'),0);
+});
+test('even a zero-duration pause shows resume; legacy saved timers remain compatible',()=>{
+  const a=timerApp();a.run('toggleThrowTimer();toggleThrowTimer()');
+  assert.equal(a.run('throwTimerButtonLabel()'),'再開');
+  const b=app(undefined,a.values.get('molkky_throw_timer_v1'));assert.equal(b.run('throwTimerButtonLabel()'),'再開');
+  const legacy=app(undefined,JSON.stringify({elapsedMs:1200,startedAt:null}));assert.equal(legacy.run('throwTimerButtonLabel()'),'再開');
 });
