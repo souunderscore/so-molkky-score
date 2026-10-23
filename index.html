@@ -198,6 +198,14 @@ input[type=text],input[type=number],select{font-size:16px;min-height:44px;}
 .sheet-game-name{font-weight:700;overflow-wrap:anywhere;}
 .current-member{font-size:17px;font-weight:800;margin-bottom:8px;overflow-wrap:anywhere;}
 
+/* 手動投擲タイマー */
+.throw-timer{display:grid;grid-template-columns:minmax(0,1fr) 64px 64px;align-items:center;gap:8px;padding:8px;background:#f1f5f9;border:1px solid var(--c-border);border-radius:10px;margin:8px 0 12px;}
+.throw-timer-readout{min-width:0;}
+.throw-timer-label{display:block;font-size:10px;color:var(--c-muted);margin-bottom:2px;white-space:nowrap;}
+.throw-timer-value{display:block;font-size:24px;line-height:1.2;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.5px;white-space:nowrap;}
+.throw-timer-value.throw-timer-long{font-size:16px;}
+.throw-timer .btn{min-height:44px;padding:6px 0;font-size:14px;font-weight:700;}
+.throw-timer .throw-timer-reset{font-size:11px;margin-left:4px;}
 /* ─── レスポンシブ ─── */
 @media(min-width:600px){
   .app{padding:20px;}
@@ -612,6 +620,7 @@ function startGame() {
   ensureSetupTeams();
   S.teams.forEach(t => {t.members=(t.members||[]).filter(m=>m.name.trim()).map(m=>({...m,name:m.name.trim()}));});
   if (!validMemberSelection()) return;
+  clearThrowTimer();
   const draftTeams = S.teams;
   const names = [];
   for (let i = 0; i < S.settings.teamCount; i++) {
@@ -645,6 +654,7 @@ function startGame() {
 }
 
 function resetGame() {
+  clearThrowTimer();
   _sheetOpen = false; _scoreEdit = null; S.editedSet = false; S.sheetSet = null; S.archivedRecordId = null;
   S.phase = 'setup';
   S.teams = [];
@@ -665,6 +675,7 @@ function resetGame() {
 }
 
 function rematch() {
+  clearThrowTimer();
   const draftTeams = S.initialOrder
     ? S.initialOrder.map(id => S.teams.find(t => t.id === id)) : S.teams;
   S.teams = initTeams(draftTeams.map(t => t.name)).map((t, i) => ({ ...t, id: draftTeams[i].id, colorIdx: draftTeams[i].colorIdx ?? draftTeams[i].id, members: cloneRecord(draftTeams[i].members || []) }));
@@ -773,6 +784,7 @@ function render() {
   const app = document.getElementById('app');
   app.innerHTML = buildApp();
   bindEvents();
+  syncThrowTimer();
   broadcastState();
 }
 
@@ -988,6 +1000,7 @@ function buildSetFinished() {
 
   return `
     ${buildSetProgress()}
+    ${buildThrowTimer()}
     ${sheetActionButton()}
     <div class="card">
       <div class="card-header">
@@ -1147,6 +1160,7 @@ function buildPlaying() {
       </div>
       <div class="card-body">
         ${currentMember(cur) ? `<div class="current-member">投擲者：${escHtml(currentMember(cur).name)}</div>` : ''}
+        ${buildThrowTimer()}
         <div class="pin-grid">
           ${pinBtns}
           <button class="pin-btn miss" onclick="onThrow(0)" style="grid-column:span 2;aspect-ratio:unset;padding:8px 4px;font-size:14px;">ミス 0点</button>
@@ -1287,6 +1301,7 @@ function buildFinished() {
   }).join('');
 
   return `
+    ${buildThrowTimer()}
     <div class="result-banner">
       <div class="trophy">🏆</div>
       <div style="font-size:13px;opacity:0.8;margin-bottom:4px;">勝者</div>
@@ -1610,6 +1625,66 @@ async function saveScoresheet(historyIdx=-1) {
     } else {downloadSheetBlob(blob,fileName);if(status)status.textContent='画像をダウンロードしました。';}
     canvas.width=0;canvas.height=0;
   } catch(e) {if(status)status.textContent=e.message;else alert(e.message);}
+}
+
+// 手動投擲タイマー。得点入力とは独立し、再描画・再読み込み後も経過を維持する。
+const THROW_TIMER_KEY = 'molkky_throw_timer_v1';
+let throwTimer = loadThrowTimer();
+let throwTimerInterval = null;
+function throwTimerNow() { return Date.now(); }
+function loadThrowTimer() {
+  try {
+    const t=JSON.parse(localStorage.getItem(THROW_TIMER_KEY));
+    if(t && Number.isFinite(t.elapsedMs) && t.elapsedMs>=0 &&
+       (t.startedAt===null || (Number.isFinite(t.startedAt)&&t.startedAt>=0))) {
+      return {elapsedMs:t.elapsedMs,startedAt:t.startedAt};
+    }
+  } catch(e) {}
+  return {elapsedMs:0,startedAt:null};
+}
+function saveThrowTimer() {
+  try {localStorage.setItem(THROW_TIMER_KEY,JSON.stringify(throwTimer));}catch(e){}
+}
+function throwTimerElapsed(now=throwTimerNow()) {
+  return throwTimer.startedAt===null ? throwTimer.elapsedMs : Math.max(0,now-throwTimer.startedAt);
+}
+function throwTimerText(ms=throwTimerElapsed()) { return (Math.floor(ms/100)/10).toFixed(1)+'秒'; }
+function toggleThrowTimer() {
+  if(throwTimer.startedAt===null) throwTimer={elapsedMs:0,startedAt:throwTimerNow()};
+  else throwTimer={elapsedMs:throwTimerElapsed(),startedAt:null};
+  saveThrowTimer();syncThrowTimer();
+}
+function resetThrowTimer() {
+  throwTimer={elapsedMs:0,startedAt:throwTimer.startedAt===null?null:throwTimerNow()};
+  saveThrowTimer();syncThrowTimer();
+}
+function clearThrowTimer() {
+  throwTimer={elapsedMs:0,startedAt:null};saveThrowTimer();
+  if(throwTimerInterval!==null)clearInterval(throwTimerInterval);
+  throwTimerInterval=null;
+}
+function buildThrowTimer() {
+  return `<div class="throw-timer" aria-label="投擲タイマー">
+    <div class="throw-timer-readout"><span class="throw-timer-label">⏱ 投擲時間</span><output id="throw-timer-value" class="throw-timer-value" aria-label="経過時間">${throwTimerText()}</output></div>
+    <button type="button" id="throw-timer-toggle" class="btn ${throwTimer.startedAt===null?'btn-blue':'btn-orange'}" onclick="toggleThrowTimer()">${throwTimer.startedAt===null?'開始':'停止'}</button>
+    <button type="button" class="btn btn-gray throw-timer-reset" onclick="resetThrowTimer()">リセット</button>
+  </div>`;
+}
+function updateThrowTimerDisplay() {
+  const output=document.getElementById('throw-timer-value');
+  if(output){const text=throwTimerText();output.textContent=text;output.classList.toggle('throw-timer-long',text.length>7);}
+}
+function syncThrowTimer() {
+  updateThrowTimerDisplay();
+  const button=document.getElementById('throw-timer-toggle');
+  if(button){
+    const running=throwTimer.startedAt!==null;
+    button.textContent=running?'停止':'開始';
+    button.classList.toggle('btn-blue',!running);button.classList.toggle('btn-orange',running);
+  }
+  if(throwTimerInterval!==null)clearInterval(throwTimerInterval);
+  throwTimerInterval=null;
+  if(button&&throwTimer.startedAt!==null) throwTimerInterval=setInterval(updateThrowTimerDisplay,100);
 }
 
 // ─── スコアボードタブ ────────────────────────────────────────────
@@ -2064,5 +2139,6 @@ render();
 </script>
 </body>
 </html>
+
 
 
