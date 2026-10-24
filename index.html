@@ -206,6 +206,13 @@ input[type=text],input[type=number],select{font-size:16px;min-height:44px;}
 .throw-timer-value.throw-timer-long{font-size:16px;}
 .throw-timer .btn{min-height:44px;padding:6px 0;font-size:14px;font-weight:700;}
 .throw-timer .throw-timer-reset{font-size:11px;margin-left:4px;}
+.current-order-row{display:flex;align-items:center;gap:6px;padding:8px 0;border-bottom:1px solid var(--c-border);}
+.order-position{flex:0 0 24px;text-align:center;font-weight:700;}
+.order-team-name{flex:1;min-width:0;font-weight:700;overflow-wrap:anywhere;}
+.order-team-name small{display:block;font-size:11px;font-weight:500;color:var(--c-muted);margin-top:3px;}
+.current-order-row .btn{min-width:44px;min-height:44px;}
+.match-total{font-size:12px;font-weight:700;color:var(--c-muted);white-space:nowrap;margin-left:auto;}
+
 /* ─── レスポンシブ ─── */
 @media(min-width:600px){
   .app{padding:20px;}
@@ -354,7 +361,7 @@ function applyThrow(teamIdx, points) {
   const team = S.teams[teamIdx];
   if (!team || team.isEliminated) return;
 
-  if (S.phase !== 'playing') return;
+  if (S.phase !== 'playing' || editingCurrentOrder()) return;
   if (uniformMode()) { S.previousSetUndo = null; S.uniformBeforeThrow = JSON.parse(JSON.stringify({teams:S.teams,currentTeamIdx:S.currentTeamIdx,turnCount:S.turnCount,currentSet:S.currentSet,setResults:S.setResults,sheetSet:S.sheetSet||null,editedSet:!!S.editedSet})); }
   const member = currentMember(team);
   const memberRecord = member ? {memberId:member.id,memberName:member.name} : {};
@@ -426,7 +433,7 @@ function advanceTurn() {
 }
 
 function undoLastThrow() {
-  if (S.phase !== 'playing' && S.phase !== 'set_finished') return;
+  if (editingCurrentOrder() || (S.phase !== 'playing' && S.phase !== 'set_finished')) return;
   if (S.editedSet && recordSequence().length) { undoCorrectedSet(); return; }
   if (uniformMode() && S.phase === 'playing' && S.turnCount === 0 && S.previousSetUndo) {
     S.uniformBeforeThrow = S.previousSetUndo; S.previousSetUndo = null;
@@ -461,7 +468,7 @@ function undoLastThrow() {
     S.lastSetWinnerId = S.setResults[S.setResults.length - 1]?.winnerId ?? null;
     S.winnerId = null;
     S.finishedAt = null;
-    _orderDraft = null;
+    _orderDraft = null; S.nextTeamOrderDraft=null;
   } else {
     let found = false;
     for (let i = 0; i < S.teams.length; i++) {
@@ -587,11 +594,11 @@ function endSet(setWinnerId) {
 
 function nextSet() {
   if (!validMemberSelection(true)) return;
+  const draft = getOrderDraft();
   S.currentSet++;
   if (uniformMode() && S.uniformBeforeThrow) S.previousSetUndo = S.uniformBeforeThrow;
   S.uniformBeforeThrow = null;
   // 並び替え順序を適用
-  const draft = getOrderDraft();
   const reordered = draft.map(idx => S.teams[idx]);
   // setWins/setTotalScoreを引き継ぎつつスコアリセット
   S.teams = reordered.map((t) => ({
@@ -683,6 +690,7 @@ function startGame() {
 
 function resetGame() {
   clearThrowTimer();
+  S.orderEdit=null;S.nextTeamOrderDraft=null;
   _sheetOpen = false; _scoreEdit = null; S.editedSet = false; S.sheetSet = null; S.archivedRecordId = null;
   S.phase = 'setup';
   S.teams = [];
@@ -840,6 +848,7 @@ function buildApp() {
 
 // ─── 試合タブ ───────────────────────────────────────────────────
 function buildGameTab() {
+  if(editingCurrentOrder())return buildCurrentOrderEditor();
   if (S.phase === 'setup') return buildSetup();
   if (S.phase === 'playing') return buildPlaying();
   if (S.phase === 'set_finished') return buildSetFinished();
@@ -946,11 +955,12 @@ function buildSetProgress() {
     const color = COLORS[(t.colorIdx !== undefined ? t.colorIdx : i) % COLORS.length];
     const wins = t.setWins || 0;
     const label = regMode === 'uniform' ? `${t.score} / ${S.settings.targetScore}点` : regMode === 'total'
-      ? `合計 ${t.setTotalScore || 0}点`
+      ? totalScoreLabel(t)
       : `${wins}勝`;
     return `<div style="display:flex;align-items:center;gap:6px;">
-      <span style="font-size:12px;font-weight:700;color:${color};min-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(t.name)}</span>
+      <span style="font-size:12px;font-weight:700;color:${color};flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(t.name)}</span>
       <span style="font-size:12px;color:#6b7280;min-width:40px;">${label}</span>
+      ${regMode!=='uniform'&&regMode!=='total'?`<span class="match-total">${totalScoreLabel(t)}</span>`:''}
     </div>`;
   }).join('');
   const regLabel = regulationLabel(S.settings);
@@ -968,6 +978,11 @@ let _orderDraft = null;
 let _expandedHistory = new Set(); // 展開中の試合ID
 
 function getOrderDraft() {
+  const saved=S.nextTeamOrderDraft;
+  if(saved?.setNum===S.currentSet+1 && saved.ids?.length===S.teams.length &&
+     new Set(saved.ids).size===S.teams.length && saved.ids.every(id=>S.teams.some(t=>t.id===id))) {
+    _orderDraft=saved.ids.map(id=>S.teams.findIndex(t=>t.id===id));
+  }
   if (!_orderDraft || _orderDraft.length !== S.teams.length) {
     const n = S.teams.length;
     const completedSets = S.setResults.length;
@@ -977,16 +992,22 @@ function getOrderDraft() {
       .sort((a, b) => (a.colorIdx ?? a.id) - (b.colorIdx ?? b.id)).map(t => t.id);
     const base = initialOrder.map(id => S.teams.findIndex(t => t.id === id));
     _orderDraft = Array.from({length: n}, (_, i) => base[(i + shift) % n]);
+    if(decidingSetByTotal()) {
+      const rotation=[..._orderDraft];
+      _orderDraft.sort((a,b)=>(S.teams[b].setTotalScore||0)-(S.teams[a].setTotalScore||0)||rotation.indexOf(a)-rotation.indexOf(b));
+    }
   }
   return _orderDraft;
 }
 
 function moveOrder(from, to) {
   const draft = getOrderDraft();
+  if(from<0||from>=draft.length||to<0||to>=draft.length)return;
   const item = draft.splice(from, 1)[0];
   draft.splice(to, 0, item);
   _orderDraft = draft;
-  render();
+  S.nextTeamOrderDraft={setNum:S.currentSet+1,ids:draft.map(i=>S.teams[i].id)};
+  saveState();render();
 }
 
 function buildSetFinished() {
@@ -1006,7 +1027,7 @@ function buildSetFinished() {
     const isW = t.id === S.lastSetWinnerId;
     return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0f0f0;">
       <div style="width:10px;height:10px;border-radius:50%;background:${tColor};flex-shrink:0;"></div>
-      <div style="flex:1;font-weight:700;color:${tColor};">${escHtml(t.name)}</div>
+      <div style="flex:1;font-weight:700;color:${tColor};">${escHtml(t.name)}<div class="member-note" style="margin:2px 0 0;">${totalScoreLabel(t)}</div></div>
       ${isW ? '<span style="background:#E1F5EE;color:#1D9E75;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;">セット勝利</span>' : ''}
       <div style="font-size:22px;font-weight:900;color:${tColor};">${lastScore ? lastScore.score : t.score}${uniformMode() ? `<span style="display:block;font-size:10px;color:#6b7280;">区間 ${interval >= 0 ? '+' : ''}${interval}</span>` : ''}</div>
     </div>`;
@@ -1020,7 +1041,7 @@ function buildSetFinished() {
     const isLast = pos === draft.length - 1;
     return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border-bottom:1px solid #f0f0f0;">
       <div style="width:24px;height:24px;border-radius:50%;background:${color};color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${pos+1}</div>
-      <div style="flex:1;font-weight:700;color:${color};">${escHtml(t.name)}</div>
+      <div class="order-team-name" style="color:${color};">${escHtml(t.name)}<small>${totalScoreLabel(t)}</small></div>
       <div style="display:flex;gap:4px;">
         <button class="btn btn-sm btn-gray" onclick="moveOrder(${pos},${pos-1})" ${isFirst?'disabled':''} style="padding:4px 10px;font-size:16px;line-height:1;">↑</button>
         <button class="btn btn-sm btn-gray" onclick="moveOrder(${pos},${pos+1})" ${isLast?'disabled':''} style="padding:4px 10px;font-size:16px;line-height:1;">↓</button>
@@ -1050,6 +1071,7 @@ function buildSetFinished() {
       <div class="card-header">
         <span class="card-title">🔀 セット${nextSetNum}の投擲順</span>
       </div>
+      ${decidingSetByTotal()?'<p class="member-note" style="padding:0 16px;">全チームがリーチのため合計点順を初期値にしています。同点は通常の循環順です。上下ボタンで変更できます。</p>':''}
       <div style="border:1.5px solid #e5e7eb;border-radius:10px;overflow:hidden;margin:0 16px 14px;">
         ${orderRows}
       </div>
@@ -1080,7 +1102,6 @@ function buildPlaying() {
       `<div class="miss-dot ${mi < t.missStreak ? 'active' : ''}"></div>`
     ).join('');
     const setWins = t.setWins || 0;
-    const setTotalScore = t.setTotalScore || 0;
     const hasSets = S.setResults && S.setResults.length > 0;
     const setWinText = `${setWins}勝`;
     scoreCards += `
@@ -1090,7 +1111,7 @@ function buildPlaying() {
           <div class="team-name" style="color:${tColor};">${escHtml(t.name)}</div>
           ${hasSets ? `<div style="display:flex;align-items:center;gap:4px;">
             <span style="display:flex;align-items:center;">${setWinText}</span>
-            <span style="font-size:10px;color:#6b7280;white-space:nowrap;">計${setTotalScore}</span>
+            
           </div>` : ''}
         </div>
         <div class="score-num" style="color:${tColor};">${t.isEliminated?'❌':t.score}</div>
@@ -1182,6 +1203,7 @@ function buildPlaying() {
     ${buildSetProgress()}
     ${scoreCards}
     ${sheetActionButton('スコアシートを見る')}
+    <button class="btn btn-gray btn-block" style="margin-bottom:8px;" onclick="openCurrentOrder()">${S.teams.some(t=>t.history.length)?'このセットをやり直す':'投擲順を変更'}</button>
 
     <div class="card">
       <div class="card-header">
@@ -1358,6 +1380,75 @@ function buildFinished() {
   `;
 }
 
+// 通常のセット先取で全チームがリーチになった場合だけ、決着セットを合計点順にする。
+function decidingSetByTotal() {
+  return S.settings.regMode==='first' && S.teams.length>1 &&
+    S.teams.every(t=>(t.setWins||0)===S.settings.regN-1);
+}
+function displayedMatchTotal(team, provisional=S.phase==='playing') {
+  // 均一モードは累積点を各区間で持ち越すため、各セットの合算とは区別する。
+  if(uniformMode())return team.score;
+  return (team.setTotalScore||0)+(provisional?team.score:0);
+}
+function totalScoreLabel(team) {
+  if(uniformMode())return `累積 ${team.score}点`;
+  return `${S.phase==='playing'?'暫定合計':'合計'} ${displayedMatchTotal(team)}点`;
+}
+function editingCurrentOrder() { return S.phase==='playing'&&S.orderEdit?.setNum===S.currentSet; }
+function memberEditorTeam(teamIdx,next) {
+  return next&&editingCurrentOrder()?S.orderEdit.teams[teamIdx]:S.teams[teamIdx];
+}
+function openCurrentOrder() {
+  if(S.phase!=='playing'||editingCurrentOrder())return;
+  _sheetOpen=false;_scoreEdit=null;
+  S.orderEdit={setNum:S.currentSet,orderIds:S.teams.map(t=>t.id),teams:S.teams.map(t=>({id:t.id,name:t.name,members:cloneRecord(t.members||[])}))};
+  saveState();render();
+}
+function moveCurrentOrder(from,to) {
+  if(!editingCurrentOrder())return;
+  const ids=S.orderEdit.orderIds;
+  if(from<0||from>=ids.length||to<0||to>=ids.length)return;
+  ids.splice(to,0,ids.splice(from,1)[0]);saveState();render();
+}
+function cancelCurrentOrder() {
+  S.orderEdit=null;saveState();render();
+}
+function buildCurrentOrderEditor() {
+  const count=S.teams.reduce((n,t)=>n+t.history.length,0),draft=S.orderEdit;
+  const rows=draft.orderIds.map((id,pos)=>{
+    const t=S.teams.find(t=>t.id===id);
+    return `<div class="current-order-row"><span class="order-position">${pos+1}</span><div class="order-team-name">${escHtml(t.name)}<small>${uniformMode()?'開始時の累積':'確定合計'} ${uniformMode()?(currentSetStart().startScores.find(sc=>sc.teamId===t.id)?.score||0):displayedMatchTotal(t,false)}点</small></div>
+      <button class="btn btn-sm" onclick="moveCurrentOrder(${pos},${pos-1})" ${pos===0?'disabled':''} aria-label="チームを上へ">↑</button>
+      <button class="btn btn-sm" onclick="moveCurrentOrder(${pos},${pos+1})" ${pos===draft.orderIds.length-1?'disabled':''} aria-label="チームを下へ">↓</button></div>`;
+  }).join('');
+  return `<div class="card"><div class="card-header"><span class="card-title">セット${S.currentSet}の投擲順を変更</span></div><div class="card-body">
+    <p class="member-note">${count?`適用すると、このセットの${count}投の記録を削除してやり直します。終了済みセットは保持します。`:'得点は未入力です。チーム・参加者・投擲順を変更できます。'}</p>
+    <label>チームの投擲順</label>${rows}
+    <label style="margin-top:16px;">チーム内の参加者・投擲順</label>${draft.teams.map((t,i)=>buildMemberEditor(i,true)).join('')}
+    <button class="btn btn-primary btn-block" onclick="confirmCurrentOrder()">${count?'この順でやり直す':'この順で開始'}</button>
+    <button class="btn btn-gray btn-block" onclick="cancelCurrentOrder()" style="margin-top:8px;">キャンセル</button>
+  </div></div>`;
+}
+function confirmCurrentOrder() {
+  if(!editingCurrentOrder()||!validMemberSelection(true))return;
+  const count=S.teams.reduce((n,t)=>n+t.history.length,0);
+  if(count)showConfirm(`現在のセットの${count}投の記録を削除し、変更した順番でこのセットをやり直します。終了済みセットは保持します。よろしいですか？`,applyCurrentOrder);
+  else applyCurrentOrder();
+}
+function applyCurrentOrder() {
+  if(!editingCurrentOrder()||!validMemberSelection(true))return;
+  const draft=S.orderEdit,start=currentSetStart();
+  S.teams=draft.orderIds.map(id=>{
+    const original=S.teams.find(t=>t.id===id),memberTeam=draft.teams.find(t=>t.id===id),members=memberTeam.nextMembers||memberTeam.members;
+    return {...cloneRecord(original),members:cloneRecord(members),nextMembers:undefined,
+      score:start.startScores.find(sc=>sc.teamId===id)?.score||0,history:[],missStreak:0,isEliminated:false};
+  });
+  if(S.currentSet===1&&!S.setResults.length)S.initialOrder=S.teams.map(t=>t.id);
+  S.currentTeamIdx=0;S.turnCount=0;S.winnerId=null;S.finishedAt=null;
+  S.uniformBeforeThrow=null;S.previousSetUndo=null;_orderDraft=null;
+  beginSheetSet();saveState();render();
+}
+
 // チーム内の記録。名簿・参加者・投擲順はセット単位で保存する。
 const cloneRecord = value => JSON.parse(JSON.stringify(value));
 let _sheetOpen = false;
@@ -1370,7 +1461,7 @@ function currentMember(team) {
   return list.length ? list[team.history.length % list.length] : null;
 }
 function buildMemberEditor(teamIdx, next = false) {
-  const team = S.teams[teamIdx];
+  const team = memberEditorTeam(teamIdx,next);
   const members = (next ? team.nextMembers : null) || team.members || [];
   const rows = members.map((m, i) => `<div class="member-row ${m.active === false ? 'inactive' : ''}">
     <input type="checkbox" ${m.active !== false ? 'checked' : ''} onchange="toggleMemberParticipation(${teamIdx},${i},${next})" aria-label="${escHtml(m.name || (i+1)+'番目のメンバー')}の参加"/>
@@ -1383,7 +1474,7 @@ function buildMemberEditor(teamIdx, next = false) {
     ${next ? (members.length ? '<div class="member-note">チェックしたメンバーが上から順に投擲します。</div>' : '<div class="member-note">メンバー未登録</div>') : `<button type="button" class="btn btn-sm" onclick="addMember(${teamIdx})">メンバーを追加</button><div class="member-note">チェックしたメンバーが参加します。未登録でも利用できます。</div>`}</div>`;
 }
 function memberDraft(teamIdx, next) {
-  const t = S.teams[teamIdx];
+  const t = memberEditorTeam(teamIdx,next);
   if (next && !t.nextMembers) t.nextMembers = cloneRecord(t.members || []);
   if (!t.members) t.members = [];
   return next ? t.nextMembers : t.members;
@@ -1400,20 +1491,20 @@ function removeMember(teamIdx, idx) {
   captureSetupInputs(); memberDraft(teamIdx,false).splice(idx,1); saveState(); render();
 }
 function moveMember(teamIdx, from, to, next = false) {
-  if (S.phase !== (next ? 'set_finished' : 'setup')) return;
+  if (next ? S.phase!=='set_finished'&&!editingCurrentOrder() : S.phase!=='setup') return;
   captureSetupInputs(); const list = memberDraft(teamIdx,next);
   if (to<0 || to>=list.length || from<0 || from>=list.length) return;
   list.splice(to,0,list.splice(from,1)[0]); saveState(); render();
 }
 function toggleMemberParticipation(teamIdx, idx, next = false) {
-  if (S.phase !== (next ? 'set_finished' : 'setup')) return;
+  if (next ? S.phase!=='set_finished'&&!editingCurrentOrder() : S.phase!=='setup') return;
   captureSetupInputs(); const list = memberDraft(teamIdx,next);
   if (!list[idx]) return;
   list[idx].active = list[idx].active === false;
   saveState(); render();
 }
 function validMemberSelection(next = false) {
-  for (const t of S.teams) {
+  for (const t of (next&&editingCurrentOrder()?S.orderEdit.teams:S.teams)) {
     const list = ((next ? t.nextMembers : null) || t.members || []).filter(m => m.name.trim());
     if (list.length && !list.some(m => m.active !== false)) {
       alert(`${t.name || 'チーム'}の参加メンバーを1人以上選択してください。`); return false;
@@ -1422,6 +1513,7 @@ function validMemberSelection(next = false) {
   return true;
 }
 function beginSheetSet() {
+  S.orderEdit=null;S.nextTeamOrderDraft=null;
   S.sheetSet = {setNum:S.currentSet, firstTeamId:S.teams[0]?.id,
     startScores:S.teams.map(t => ({teamId:t.id,score:t.score}))};
   S.editedSet = false; S.archivedRecordId = null;
@@ -1457,7 +1549,7 @@ function sheetColumns(sc) {
 }
 function sheetGoal(g,sr) { return g.settings.regMode==='uniform' ? Math.min(g.settings.targetScore,sr.setNum*50) : g.settings.targetScore; }
 function mayEditSet(setNum) {
-  return ['playing','set_finished','finished'].includes(S.phase) && setNum===S.currentSet;
+  return !editingCurrentOrder() && ['playing','set_finished','finished'].includes(S.phase) && setNum===S.currentSet;
 }
 function buildSheetTable(g,sr,editable=false) {
   const columns = sr.scores.map(sc=>sheetColumns(sc));
@@ -1559,7 +1651,7 @@ function applyReplayedSet(result) {
   S.phase='playing'; S.winnerId=null; S.finishedAt=null;
   S.lastSetWinnerId=S.setResults.at(-1)?.winnerId??null;
   S.sheetSet=result.meta; S.editedSet=true; S.archivedRecordId=null;
-  S.uniformBeforeThrow=null; S.previousSetUndo=null; _orderDraft=null;
+  S.uniformBeforeThrow=null; S.previousSetUndo=null; _orderDraft=null; S.nextTeamOrderDraft=null;
   if(result.ended) {
     if(uniformMode()&&result.consumed>0) {
       const beforeLast=replayCurrentSet(recordSequence(S.teams).slice(0,-1));
@@ -2212,6 +2304,7 @@ render();
 </script>
 </body>
 </html>
+
 
 
 
