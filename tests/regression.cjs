@@ -601,3 +601,75 @@ test('eleven setup fixes only set target at 11 and preserves multiple teams and 
   a.run("setRegulation('eleven',2)");assert.equal(a.run('S.settings.regN'),11);
   a.run("switchRegMode('first')");assert.equal(a.run('S.settings.regN'),2);assert.doesNotMatch(a.run('buildSetup()'),/<input[^>]*id="reg-value"[^>]*disabled/);
 });
+
+
+function reachDecider() {
+  const a=app();a.run(`fresh('first');S.settings.regN=2;S.initialOrder=[0,1];beginSheetSet();
+    S.teams[0].score=49;S.teams[1].score=48;S.currentTeamIdx=0;applyThrow(0,1);nextSet();
+    S.teams.find(t=>t.id===0).score=30;S.teams.find(t=>t.id===1).score=49;
+    S.currentTeamIdx=S.teams.findIndex(t=>t.id===1);applyThrow(S.currentTeamIdx,1);`);return a;
+}
+test('first-to-two deciding set defaults to higher total, retains manual override after reload',()=>{
+  const a=reachDecider();assert.equal(a.run('decidingSetByTotal()'),true);
+  assert.deepEqual(a.json('getOrderDraft().map(i=>S.teams[i].id)'),[1,0]);
+  assert.deepEqual(a.json('S.teams.slice().sort((a,b)=>a.id-b.id).map(t=>t.setTotalScore)'),[80,98]);
+  a.run('moveOrder(0,1)');const b=app(a.values.get('molkky_so_v2'));
+  assert.deepEqual(b.json('getOrderDraft().map(i=>S.teams[i].id)'),[0,1]);
+  const old=b.json('S.setResults');b.run('nextSet()');assert.equal(b.run('S.teams[0].id'),0);assert.equal(b.run('S.currentSet'),3);assert.deepEqual(b.json('S.setResults'),old);
+});
+test('all teams must be on match point; equal totals retain the normal rotation',()=>{
+  const a=app();a.run(`fresh('first',3);S.settings.regN=2;S.initialOrder=[2,0,1];
+    S.setResults=[{setNum:1,winnerId:0},{setNum:2,winnerId:1},{setNum:3,winnerId:2}];
+    S.teams.forEach((t,i)=>{t.setWins=1;t.setTotalScore=[80,90,80][i]});`);
+  assert.equal(a.run('decidingSetByTotal()'),true);assert.deepEqual(a.json('getOrderDraft().map(i=>S.teams[i].id)'),[1,2,0]);
+  a.run('S.teams[2].setWins=0;_orderDraft=null');assert.equal(a.run('decidingSetByTotal()'),false);assert.deepEqual(a.json('getOrderDraft().map(i=>S.teams[i].id)'),[2,0,1]);
+});
+test('other modes keep their ordinary rotation even if wins happen to match the reach value',()=>{
+  for(const mode of ['match','total','prime','eleven']){
+    const a=app();a.run(`fresh('${mode}',3);S.settings.regN=2;S.initialOrder=[0,1,2];S.setResults=[{},{}];S.teams.forEach(t=>{t.setWins=1;t.setTotalScore=100-t.id*10})`);
+    assert.equal(a.run('decidingSetByTotal()'),false);assert.deepEqual(a.json('getOrderDraft().map(i=>S.teams[i].id)'),[2,0,1]);
+  }
+});
+test('playing totals include current score once; completed totals do not double count',()=>{
+  const a=app();a.run("fresh('first');S.teams[0].setTotalScore=50;S.teams[0].score=15");
+  assert.equal(a.run('displayedMatchTotal(S.teams[0])'),65);assert.match(a.run('buildSetProgress()'),/暫定合計 65点/);
+  a.run('S.teams[0].score=50;endSet(0)');assert.equal(a.run('displayedMatchTotal(S.teams[0])'),100);assert.match(a.run('buildSetProgress()'),/合計 100点/);
+  a.run("S.settings.regMode='uniform';S.teams[0].score=75");assert.equal(a.run('displayedMatchTotal(S.teams[0])'),75);
+});
+test('unplayed current-set order edit can change teams, participants and members without changing prior state until apply',()=>{
+  const a=teamRecordApp();a.run('S.initialOrder=[0,1];openCurrentOrder();moveCurrentOrder(0,1);moveMember(0,2,0,true);toggleMemberParticipation(0,1,true)');
+  assert.deepEqual(a.json('S.teams.map(t=>t.id)'),[0,1]);assert.equal(a.run('currentMember(S.teams[0]).name'),'A');
+  a.run('confirmCurrentOrder()');assert.deepEqual(a.json('S.teams.map(t=>t.id)'),[1,0]);assert.equal(a.run('currentMember(S.teams.find(t=>t.id===0)).name'),'C');
+  assert.deepEqual(a.json('S.initialOrder'),[1,0]);assert.equal(a.run('S.sheetSet.firstTeamId'),1);assert.equal(a.run('S.currentSet'),1);
+});
+test('canceling an entered-set edit preserves throws and blocks score entry/undo while editing',()=>{
+  const a=teamRecordApp();play(a,[12,3,2]);const before=a.json('state()');
+  a.run('openCurrentOrder();moveCurrentOrder(0,1);moveMember(0,2,0,true);applyThrow(0,12);undoLastThrow()');
+  assert.deepEqual(a.json('state()'),before);a.run('cancelCurrentOrder()');assert.deepEqual(a.json('state()'),before);
+});
+test('restart current entered set requires confirmation and keeps all past sets and stats',()=>{
+  const a=teamRecordApp();play(a,[10,1,10,1,10,1,10,1,10]);a.run('nextSet()');play(a,[3,12,4]);
+  const past=a.json('S.setResults'),stats=a.json('S.teams.map(t=>[t.id,t.setWins,t.setTotalScore])');
+  a.run(`showConfirm=(message,fn)=>{window.orderConfirmation=message;window.orderApply=fn};
+    openCurrentOrder();moveCurrentOrder(0,1);confirmCurrentOrder()`);
+  assert.match(a.run('window.orderConfirmation'),/3投/);assert.equal(a.run('S.teams.reduce((n,t)=>n+t.history.length,0)'),3);
+  a.run('window.orderApply()');assert.equal(a.run('S.teams.reduce((n,t)=>n+t.history.length,0)'),0);assert.equal(a.run('S.currentSet'),2);
+  assert.deepEqual(a.json('S.setResults'),past);assert.deepEqual(a.json('S.teams.slice().reverse().map(t=>[t.id,t.setWins,t.setTotalScore])'),stats);
+  assert.equal(a.run('S.teams.every(t=>t.score===0&&!t.isEliminated&&t.missStreak===0)'),true);
+});
+test('a reloaded draft retains member/order changes and can be canceled without losing input',()=>{
+  const a=teamRecordApp();play(a,[12,3]);a.run('openCurrentOrder();moveCurrentOrder(0,1);moveMember(0,2,0,true)');
+  const b=app(a.values.get('molkky_so_v2'));assert.equal(b.run('editingCurrentOrder()'),true);assert.deepEqual(b.json('S.orderEdit.orderIds'),[1,0]);
+  assert.equal(b.run('S.orderEdit.teams[0].nextMembers[0].name'),'C');b.run('cancelCurrentOrder()');assert.equal(b.run('S.teams[0].history[0].points'),12);
+});
+test('uniform restart restores interval start scores rather than zero and removes undo of discarded throws',()=>{
+  const a=teamRecordApp('uniform');a.run(`S.settings.targetScore=150;S.currentSet=2;S.teams[0].score=50;S.teams[1].score=35;
+    S.setResults=[{setNum:1,winnerId:0,scores:[{teamId:0,score:50},{teamId:1,score:35}]}];beginSheetSet()`);
+  play(a,[12,4]);a.run('openCurrentOrder();moveCurrentOrder(0,1);applyCurrentOrder()');
+  assert.equal(a.run('S.teams.find(t=>t.id===0).score'),50);assert.equal(a.run('S.teams.find(t=>t.id===1).score'),35);
+  assert.equal(a.run('S.setResults.length'),1);assert.equal(a.run('S.uniformBeforeThrow'),null);assert.equal(a.run('S.previousSetUndo'),null);assert.equal(a.run('S.turnCount'),0);
+});
+test('empty participation in a correction draft cannot overwrite the live set',()=>{
+  const a=teamRecordApp();play(a,[12,3]);a.run('openCurrentOrder();S.orderEdit.teams[0].members.forEach(m=>m.active=false);applyCurrentOrder()');
+  assert.equal(a.run('editingCurrentOrder()'),true);assert.equal(a.run('S.teams[0].history[0].points'),12);assert.ok(a.alerts.length>0);
+});
