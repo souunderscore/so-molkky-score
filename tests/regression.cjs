@@ -259,7 +259,7 @@ test('changing team count after reordering keeps IDs and colors unique', () => {
 
 function primeMatch() {
   const a = app();
-  a.run(`fresh('prime'); enforcePrimeSettings();
+  a.run(`fresh('prime'); enforceRegulationSettings();
     function winPrimeSet(id) {
       const idx = S.teams.findIndex(t => t.id === id);
       S.currentTeamIdx = idx; S.teams[idx].score = 49;
@@ -534,4 +534,70 @@ test('even a zero-duration pause shows resume; legacy saved timers remain compat
   assert.equal(a.run('throwTimerButtonLabel()'),'再開');
   const b=app(undefined,a.values.get('molkky_throw_timer_v1'));assert.equal(b.run('throwTimerButtonLabel()'),'再開');
   const legacy=app(undefined,JSON.stringify({elapsedMs:1200,startedAt:null}));assert.equal(legacy.run('throwTimerButtonLabel()'),'再開');
+});
+
+
+function elevenMatch(count=2) {
+  const a=app();a.run(`fresh('eleven',${count});enforceRegulationSettings();beginSheetSet();
+    function winElevenSet(id) {
+      if(S.phase==='set_finished')nextSet();
+      if(S.phase==='finished')throw Error('match already finished');
+      const idx=S.teams.findIndex(t=>t.id===id);S.currentTeamIdx=idx;S.teams[idx].score=49;applyThrow(idx,1);
+    }
+    function elevenWins(){return S.teams.slice().sort((a,b)=>a.id-b.id).map(t=>t.setWins||0);}
+  `);return a;
+}
+function elevenPlay(a,ids){for(const id of ids)a.run(`winElevenSet(${id})`);}
+function reachTenTie(a){elevenPlay(a,[...Array(10).fill(0),...Array(10).fill(1)]);}
+for(const count of [2,3,6])test(`eleven with ${count} teams: normal 11 wins ends before deuce`,()=>{
+  const a=elevenMatch(count);elevenPlay(a,[...Array(10).fill(0),...Array(9).fill(1),0]);
+  assert.equal(a.run('S.phase'),'finished');assert.equal(a.run('S.winnerId'),0);assert.equal(a.run('elevenExtended()'),false);
+  assert.equal(a.run('S.settings.regN'),11);assert.match(a.run('buildHistoryTab()'),/11先/);
+});
+test('eleven deuce: A-B-B leaves 11-12 ongoing; next B wins 11-13',()=>{
+  const a=elevenMatch();reachTenTie(a);assert.equal(a.run('S.phase'),'set_finished');assert.equal(a.run('elevenExtended()'),true);
+  elevenPlay(a,[0,1,1]);assert.deepEqual(a.json('elevenWins()'),[11,12]);assert.equal(a.run('S.phase'),'set_finished');
+  elevenPlay(a,[1]);assert.equal(a.run('S.phase'),'finished');assert.equal(a.run('S.winnerId'),1);assert.deepEqual(a.json('elevenWins()'),[11,13]);
+});
+for(const tail of [[0,0],[1,1],[0,1,0,0]])test(`eleven deuce finishes at a two-win margin after ${tail.join('-')}`,()=>{
+  const a=elevenMatch();reachTenTie(a);elevenPlay(a,tail);assert.equal(a.run('S.phase'),'finished');
+  const wins=a.json('elevenWins()').sort((a,b)=>b-a);assert.equal(wins[0]-wins[1],2);
+});
+test('three teams: another team can catch up and must lead the actual runner-up by two',()=>{
+  const a=elevenMatch(3);reachTenTie(a);elevenPlay(a,[...Array(9).fill(2),0,2,2,2]);
+  assert.deepEqual(a.json('elevenWins()'),[11,10,12]);assert.equal(a.run('S.phase'),'set_finished');
+  elevenPlay(a,[2]);assert.equal(a.run('S.winnerId'),2);assert.deepEqual(a.json('elevenWins()'),[11,10,13]);
+});
+test('six-team extension keeps all teams eligible and ignores lower places in margin',()=>{
+  const a=elevenMatch(6);reachTenTie(a);elevenPlay(a,[...Array(9).fill(2),...Array(7).fill(3),...Array(11).fill(4)]);
+  assert.equal(a.run('S.phase'),'set_finished');assert.deepEqual(a.json('elevenWins()'),[10,10,9,7,11,0]);
+  elevenPlay(a,[4]);assert.equal(a.run('S.winnerId'),4);
+});
+test('eleven extension has no fixed set cap while leaders alternate',()=>{
+  const a=elevenMatch();reachTenTie(a);for(let i=0;i<40;i++)elevenPlay(a,[0,1]);
+  assert.equal(a.run('S.phase'),'set_finished');assert.deepEqual(a.json('elevenWins()'),[50,50]);
+  elevenPlay(a,[0,0]);assert.equal(a.run('S.phase'),'finished');assert.deepEqual(a.json('elevenWins()'),[52,50]);
+});
+test('undoing the 10-10 trigger cancels extension and reload/redo restores it',()=>{
+  const a=elevenMatch();reachTenTie(a);a.run('undoLastThrow()');
+  assert.equal(a.run('elevenExtended()'),false);assert.deepEqual(a.json('elevenWins()'),[10,9]);
+  a.run('winElevenSet(1)');const b=app(a.values.get('molkky_so_v2'));
+  assert.equal(b.run('elevenExtended()'),true);assert.equal(b.run('getPublicState().elevenExtended'),true);assert.match(b.run('buildSetProgress()'),/延長中/);
+  b.run('rematch()');assert.equal(b.run('elevenExtended()'),false);
+});
+test('score correction of deuce trigger clears extension; final-set correction reopens match',()=>{
+  const a=elevenMatch();reachTenTie(a);a.run('applyReplayedSet(proposeScoreEdit(1,0,0))');
+  assert.equal(a.run('elevenExtended()'),false);assert.deepEqual(a.json('elevenWins()'),[10,9]);
+  const b=elevenMatch();reachTenTie(b);elevenPlay(b,[0,0]);assert.equal(b.run('S.history.length'),1);
+  b.run('applyReplayedSet(proposeScoreEdit(0,0,0))');assert.equal(b.run('S.phase'),'playing');assert.equal(b.run('S.history.length'),0);
+  assert.deepEqual(b.json('elevenWins()'),[11,10]);assert.equal(b.run('elevenExtended()'),true);
+});
+test('eleven setup fixes only set target at 11 and preserves multiple teams and per-set settings',()=>{
+  const a=app();setup(a);a.run("updateTeamCount(3);switchRegMode('eleven')");
+  assert.equal(a.run('S.teams.length'),3);assert.equal(a.run('S.settings.regN'),11);assert.equal(a.run('S.settings.targetScore'),60);assert.equal(a.run('S.settings.maxMiss'),4);
+  assert.match(a.run('buildSetup()'),/<input[^>]*id="reg-value"[^>]*disabled/);
+  assert.doesNotMatch(a.run('buildSetup()'),/<select[^>]*id="team-count-select"[^>]*disabled/);
+  assert.doesNotMatch(a.run('buildSetup()'),/<input[^>]*id="target-score"[^>]*disabled/);
+  a.run("setRegulation('eleven',2)");assert.equal(a.run('S.settings.regN'),11);
+  a.run("switchRegMode('first')");assert.equal(a.run('S.settings.regN'),2);assert.doesNotMatch(a.run('buildSetup()'),/<input[^>]*id="reg-value"[^>]*disabled/);
 });
