@@ -212,6 +212,14 @@ input[type=text],input[type=number],select{font-size:16px;min-height:44px;}
   .pin-grid{grid-template-columns:repeat(4,1fr);gap:10px;}
   .pin-btn{font-size:24px;}
 }
+/* 押下中の沈み込みと、離した後の短いハイライト */
+.btn,.pin-btn,button,.tab{touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:transform .07s ease-out,filter .07s ease-out,box-shadow .07s ease-out,background-color .12s;}
+.btn.is-pressed,.btn:active,.pin-btn.is-pressed,.pin-btn:active,button.is-pressed,button:active,.tab.is-pressed,.tab:active{transform:translateY(2px) scale(.96);filter:brightness(.84);box-shadow:inset 0 2px 4px rgba(0,0,0,.22);}
+.btn:disabled,.pin-btn:disabled,button:disabled{transform:none;filter:none;box-shadow:none;}
+.button-tap-flash{position:fixed;display:block;pointer-events:none;z-index:10001;background:rgba(255,119,51,.2);box-shadow:inset 0 0 0 2px rgba(255,85,0,.65);animation:button-tap-fade .24s ease-out forwards;}
+@keyframes button-tap-fade{from{opacity:1;}to{opacity:0;}}
+@media(prefers-reduced-motion:reduce){.btn,.pin-btn,button,.tab{transition:none;}.btn.is-pressed,.btn:active,.pin-btn.is-pressed,.pin-btn:active,button.is-pressed,button:active,.tab.is-pressed,.tab:active{transform:none;}.button-tap-flash{animation-duration:.15s;}}
+
 </style>
 </head>
 <body>
@@ -2128,6 +2136,46 @@ function closeModal(id) {
   document.getElementById(id).classList.remove('open');
 }
 
+// 委譲したイベントでタッチ・マウス・キーボードに同じ押下反応を付ける。
+// ハイライトはappの外へ描画し、得点入力による再描画中も短く残す。
+function installButtonFeedback() {
+  let pressed=null;
+  let pointerStart=null;
+  function control(target) {
+    const el=target?.closest?.('button,.tab');
+    return el&&!el.disabled&&el.getAttribute('aria-disabled')!=='true'?el:null;
+  }
+  function release() {
+    pressed?.classList.remove('is-pressed');pressed=null;pointerStart=null;
+  }
+  document.addEventListener('pointerdown',event=>{
+    if(!event.isPrimary||event.button!==0)return;
+    release();pressed=control(event.target);
+    if(pressed){pressed.classList.add('is-pressed');pointerStart={x:event.clientX,y:event.clientY};}
+  },{passive:true});
+  document.addEventListener('pointermove',event=>{
+    if(pointerStart&&Math.hypot(event.clientX-pointerStart.x,event.clientY-pointerStart.y)>12)release();
+  },{passive:true});
+  document.addEventListener('pointerup',release,{passive:true});
+  document.addEventListener('pointercancel',release,{passive:true});
+  window.addEventListener('blur',release);
+  document.addEventListener('keydown',event=>{
+    if(event.key!==' '&&event.key!=='Enter')return;
+    const el=control(event.target);if(el){release();pressed=el;el.classList.add('is-pressed');}
+  });
+  document.addEventListener('keyup',event=>{if(event.key===' '||event.key==='Enter')release();});
+  document.addEventListener('click',event=>{
+    const el=control(event.target);if(!el)return;
+    release();
+    const rect=el.getBoundingClientRect();if(!rect.width||!rect.height)return;
+    const flash=document.createElement('span');flash.className='button-tap-flash';flash.setAttribute('aria-hidden','true');
+    Object.assign(flash.style,{left:rect.left+'px',top:rect.top+'px',width:rect.width+'px',height:rect.height+'px',borderRadius:getComputedStyle(el).borderRadius});
+    document.body.appendChild(flash);
+    flash.addEventListener('animationend',()=>flash.remove(),{once:true});
+    setTimeout(()=>flash.remove(),400);
+  },true);
+}
+
 // ─── ユーティリティ ──────────────────────────────────────────────
 function escHtml(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -2136,10 +2184,12 @@ function escHtml(str) {
 // ═══════════════════════════════════════════════════════════════
 // 初期化
 // ═══════════════════════════════════════════════════════════════
+if(typeof document.addEventListener==='function')installButtonFeedback();
 render();
 </script>
 </body>
 </html>
+
 
 
 
