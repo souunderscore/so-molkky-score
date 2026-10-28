@@ -1,0 +1,14 @@
+{
+  "rules": {
+    "game": {
+      ".read": true,
+      ".write": true
+    },
+    "stream_v1": {
+      "control": {
+        ".read": "auth != null && auth.uid === '8Noq04pxAiVZfbKKcLUGlovabKG2'",
+        ".write": "auth != null && auth.uid === '8Noq04pxAiVZfbKKcLUGlovabKG2'"
+      }
+    }
+  }
+}
