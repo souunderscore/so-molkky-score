@@ -32,6 +32,12 @@ test('an unrelated valid Firebase user is not an administrator',async()=>{
   const p=new FirebasePasswordProvider({...config,fetchImpl:async()=>json({localId:'some-other-uid',idToken:'token'})});
   await assert.rejects(p.verify('admin','123456'),/INVALID_CREDENTIAL/);
 });
+test('native fetch adapter is not invoked with the provider as its receiver',async()=>{
+  const p=new FirebasePasswordProvider({...config,fetchImpl:async function(){
+    assert.equal(this,undefined);return json({localId:'admin-uid',idToken:'synthetic-token'});
+  }});
+  assert.equal((await p.verify('admin','123456')).uid,'admin-uid');
+});
 test('bad credentials, disabled accounts and unexpected upstream errors do not leak details',async()=>{
   for(const status of [400,403]){
     const p=new FirebasePasswordProvider({...config,fetchImpl:async()=>json({error:{message:'USER_DISABLED internal detail'}},status)});
