@@ -1,0 +1,24 @@
+import test,{after} from 'node:test';
+import assert from 'node:assert/strict';
+import {once} from 'node:events';
+import {createRequire} from 'node:module';
+import {Management,CredentialAccounts,digest} from './management-core.mjs';
+const require=createRequire(new URL('../experiments/firebase-auth/package.json',import.meta.url));
+const{createApp}=require('firebase-tools/lib/emulator/auth/server.js');
+const app=await createApp('demo-molkky-management');const server=app.listen(0,'127.0.0.1');await once(server,'listening');
+after(()=>new Promise(resolve=>{server.close(resolve);server.closeAllConnections();}));
+const base='http://127.0.0.1:'+server.address().port;
+const localFetch=(url,options)=>fetch(url.replace('https://identitytoolkit.googleapis.com',base+'/identitytoolkit.googleapis.com'),options);
+test('full management flow with real Auth Emulator: initialize, rotate, recover, change question',async()=>{
+  const memory={value:null,async read(){return structuredClone(this.value)},async mutate(fn){const result=fn(structuredClone(this.value));this.value=result.state;return result.reply;}};
+  const credentials=new CredentialAccounts({FIREBASE_WEB_API_KEY:'synthetic',AUTH_PEPPER:'synthetic-auth-emulator-pepper-32-minimum'},localFetch);
+  const m=new Management(memory,credentials,{bootstrapHash:await digest('synthetic-setup'),bootstrapExpires:Date.now()+60000,inputUrl:'https://score.test/index.html'});
+  await m.setup('synthetic-setup',{passcode:'123456',question:'test question',answer:'test answer'});
+  const first=await m.login('123456');await m.rotate('admin','123456','987654',null,first.token);
+  await assert.rejects(m.list(first.token),/MANAGEMENT_LOGIN_REQUIRED/);await assert.rejects(m.login('123456'),/INVALID_CREDENTIAL/);
+  const second=await m.login('987654');await m.recover('test answer','222333');
+  await assert.rejects(m.list(second.token),/MANAGEMENT_LOGIN_REQUIRED/);await assert.rejects(m.login('987654'),/INVALID_CREDENTIAL/);
+  const third=await m.login('222333');await m.rotate('recovery','test answer','new answer','new question',third.token);
+  assert.equal((await m.status()).question,'new question');await assert.rejects(m.recover('test answer','444555'),/INVALID_CREDENTIAL/);
+  await m.recover('new answer','444555');assert.ok((await m.login('444555')).token);
+});
