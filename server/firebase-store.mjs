@@ -9,15 +9,17 @@ export async function readJson(response,limit=524288){
   return JSON.parse(new TextDecoder().decode(all));
 }
 export class FirebaseControlStore{
-  constructor(env,fetchImpl=(...args)=>fetch(...args)){
+  constructor(env,fetchImpl=(...args)=>fetch(...args),path='control',auth=null){
     this.env=env;this.fetch=fetchImpl;this.token=null;
     if(!env.FIREBASE_WEB_API_KEY||!env.FIREBASE_PROJECT_ID||!env.DB_SERVICE_CONFIG||!env.DATABASE_URL)throw Error('NOT_CONFIGURED');
     this.service=JSON.parse(env.DB_SERVICE_CONFIG);
     const url=new URL(env.DATABASE_URL);
     if(url.protocol!=='https:'||!url.hostname.endsWith('.firebasedatabase.app')||url.username||url.password||url.search||url.hash)throw Error('NOT_CONFIGURED');
-    this.database=url.origin;
+    this.database=url.origin;this.path=path;this.auth=auth;
   }
+  at(path){return new FirebaseControlStore(this.env,this.fetch,path,this);}
   async idToken(){
+    if(this.auth)return this.auth.idToken();
     if(this.token)return this.token;
     const r=await this.fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key='+encodeURIComponent(this.env.FIREBASE_WEB_API_KEY),{
       method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(12000),body:JSON.stringify({email:this.service.email,password:this.service.password,returnSecureToken:true})});
@@ -28,7 +30,7 @@ export class FirebaseControlStore{
   }
   async request(method,body,etag){
     const token=await this.idToken();
-    const response=await this.fetch(this.database+'/stream_v1/control.json?auth='+encodeURIComponent(token),{
+    const response=await this.fetch(this.database+'/stream_v1/'+this.path+'.json?auth='+encodeURIComponent(token),{
       method,headers:{'Content-Type':'application/json','X-Firebase-ETag':'true',...(etag?{'if-match':etag}:{})},
       signal:AbortSignal.timeout(12000),...(body===undefined?{}:{body:JSON.stringify(body)})});
     if(response.status===401||response.status===403){await response.body?.cancel();throw Error('DB_PERMISSION_DENIED');}

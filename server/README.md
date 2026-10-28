@@ -1,7 +1,9 @@
-# 管理者初期設定・リンク管理（段階導入）
+# 管理・リンク別試合・入力担当・配信分離（切り替え前）
 
-2026-10-28。承認済み仕様のうち、管理者認証・復旧・リンク管理を実装した段階です。
-公開中のスコア入力・配信表示にはまだ接続しません。入力用URLの共有はINPUT_ENABLEDがtrueになるまで拒否します。
+2026-10-29。初期設定と管理領域のルール公開は所有者が完了しました。
+入力・配信の接続を作業ブランチで実装し、公式エミュレータとブラウザで確認しています。
+公開中のGitHub Pagesは未切り替えです。試合領域の追加ルール公開と実DB確認後に切り替えます。
+INPUT_ENABLEDがtrueになるまで入力APIと入力用URLの共有は拒否します。
 
 ## 今回の実装
 
@@ -36,8 +38,7 @@
 | auth-integration.test.mjs | 公式Auth Emulatorを使う管理者操作の結合テスト |
 | browser-check.cjs | 390px/768pxでの初期設定・ログイン・リンク・復旧の操作確認 |
 
-共通のFirebase認証アダプターは../experiments/firebase-auth/firebase-auth.mjsを使用します。
-この段階のフォルダー構成は、本番への統合前に整理する対象です。
+Firebase認証アダプターは本番用のfirebase-auth.mjsに配置しています。
 
 ## サーバー用アカウント
 
@@ -57,14 +58,17 @@ DBへアクセスするのはCloudflare側でサーバー用アカウントと�
 - DB_SERVICE_CONFIG: サーバー用UID/メール/ランダムパスワードのJSON
 - AUTH_PEPPER: ランダムなサーバー側秘密
 - BOOTSTRAP_TOKEN_HASH / BOOTSTRAP_EXPIRES_AT: 初回設定トークンの検証値・期限
-- INPUT_ENABLED: スコア画面の接続が完了するまで設定しない（false扱い）
+- INPUT_ENABLED: 試合用ルールと接続確認の準備ができたらtrueにする
+- INPUT_URL: 切り替え前はWorkerの/preview/index.htmlを使用し、本番切り替え後は既存GitHub Pagesのindex.htmlを使用する
 
 秘密の実値はGitへ保存しません。初回トークンの期限は発行から24時間です。
 期限が切れて未設定の場合は、Cloudflareの管理権限からトークンを再発行します。
 
 ## DBルールの導入
 
-同梱database.rules.jsonは、現在のgameの読み書きを維持したまま、新しいstream_v1/controlのみをサーバー用UIDに許可します。
+同梱database.rules.jsonは、現在のgameの読み書きを維持し、stream_v1/control、rooms、archivesをサーバー用UIDだけに許可します。
+例外として配信対象IDと非表示設定、選択したリンクのcurrent/viewJsonだけを公開読み取り可能にします。
+roomsの書き込みは、リンクが有効・未廃棄で、保存するgenerationが管理領域と一致することもコミット時に検証します。
 既存スコアを止めるルールではなく、管理機能の導入準備用です。
 所有者がFirebaseコンソールでルールを確認・公開するまでは、管理画面のAPIはDB_PERMISSION_DENIEDとなり、初期設定できません。
 この権限エラーを回避するために、管理領域を公開読み書き可能にはしません。
@@ -81,24 +85,57 @@ FirebaseとCloudflareの所有者権限が必要です。
 初期設定処理は既存リンクを保持し、新しい管理・復旧用UIDへ置き換え、管理セッションを全失効させます。
 管理DBを全削除する手順ではありません。作業前に状態を確認して案内する緊急手順です。
 
-## 確認
+## 試合保存と交代
+
+scoring-core.mjsがリンクの秘密・担当端末のハッシュと担当世代・対象試合・保存版を照合します。
+1リンク1トランザクションとしてETagで競合を解決し、別リンクの試合とは競合しません。
+端末の入力世代は交代で変更し、リンクのgenerationは無効化・再有効化・廃棄で変更します。
+DBルールでもgenerationを検証するため、無効化と同時進行した古い更新を拒否します。
+入力要求はPOST JSONで送信し、リンクの秘密や端末情報をURLクエリへ含めません。
+
+スナップショットは構造・サイズ・配信用のチーム名と得点の一致を検証します。
+状態JSONを文字列で保存し、Firebaseが空配列を消してもゲームの構造が変わらないようにします。
+操作IDによる再送抑止と保存版による競合検知を両方行います。
+通常交代は未送信分の同期後、新端末の申請を現担当が承認します。
+故障時は新端末が申請し、管理者が確認後に強制交代します。サーバーに届いていない記録は移りません。
+
+現在の記録はroomsに保存し、次の試合の前にarchivesへ直前版を保存します。
+アーカイブ作成後に切り替えが競合しても、履歴一覧への追加と現在試合の更新は一度だけです。
+途中でリセットした記録もJSONで取り出せます。管理画面から無効・廃棄済みリンクの記録にもアクセスできます。
+
+## 確認とデプロイ
 
 ```sh
-node --test server/management.test.mjs
-# Auth Emulatorの依存関係はexperiments/firebase-authでnpm install
+node build-preview.mjs
+node --test tests/regression.cjs server/management.test.mjs server/scoring.test.mjs
+npm ci --prefix experiments/firebase-auth
 node --test server/auth-integration.test.mjs
+# 公式Database Emulator v4.11.2のjarとJavaを用意する
+MOLKKY_DATABASE_EMULATOR_JAR=/path/to/firebase-database-emulator.jar node --test server/database-rules.test.mjs
+# PlaywrightとChromiumを用意する。実行ファイルの既定は/tmp/chromium
+node server/browser-check.cjs
+node server/scoring-browser.cjs
+node server/overlay-browser.cjs
 ```
 
-ブラウザ確認はPlaywrightとChromiumを使います。browser-check.cjsの実行環境のブラウザパスは/tmp/chromiumです。
-本番画面との結合テストではなく、管理画面と管理コアの接続を検証します。
+確認済み: 既存87件、管理14件、試合9件、公式Auth Emulator1件、公式Database Emulator1件（合計112件）。
+ブラウザでは管理・入力の390/768px、配信切り替え・非表示・旧同期経路の無視を確認しました。
+入力UIでは閲覧、通常交代、強制交代、オフライン再読み込み、旧端末の未送信保持、次試合アーカイブ、応答欠落後の再接続を確認します。
+10並列試合はコアの独立性テストです。実サービスの10試合同時負荷を保証する測定ではありません。
 
-## 未完了
+Workerをデプロイする前にnode build-preview.mjsを実行します。
+生成したserver/preview-assets.mjsは確認画面用で、Gitには保存しません。
+APIの初期設定・認証情報は既存のCloudflare Secretを保持して更新します。
+/database-setupで、所有者が追加ルールをコピーできます。
 
-- 所有者によるDBルール公開と、実DBを使う管理画面の初期設定・結合試験。
-- 既存スコアアプリのホームに管理者メニューを追加する変更。
-- 入力リンクからの試合読み込み、入力担当の取得・交代、投擲同期、オフラインキュー。
-- 固定overlay URLへの表示対象反映、旧game書き込み権限の廃止、既存記録の移行。
-- 全機能を含む無料枠の負荷計測。
+## 本番切り替えの残作業
 
-リンク状態と表示対象の変更は、この段階では管理DBだけへの保存です。
-スコア画面・配信表示への接続が完了したという意味ではありません。
+1. 所有者がFirebaseの試合領域ルールを公開する。アプリ画面からはルールを変更できない。
+2. 入力APIと確認用URLを有効にし、実DBでリンク別保存・拒否・配信を検証する。
+3. 旧gameの保存済み表示と必要な管理領域をバックアップする。
+4. GitHub Pagesへ変更を反映し、INPUT_URLを既存のindex.htmlへ戻す。
+5. 配信ソフトのブラウザソースを再読み込みし、固定URLで新しい表示を受信することを確認する。
+
+旧gameは新しい配信画面から参照しません。旧版端末の書き込みが残っても新配信は更新できません。
+旧gameへの書き込み権限の削除は、本番切り替え後に既存端末への影響を確認して別途行います。
+戻す必要がある場合はGitHub Pagesの変更を戻してから、旧game表示を確認します。新しい試合記録は削除しません。

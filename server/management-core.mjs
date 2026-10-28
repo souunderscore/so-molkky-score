@@ -1,10 +1,11 @@
-import {FirebasePasswordProvider,prepareCredential} from '../experiments/firebase-auth/firebase-auth.mjs';
+import {FirebasePasswordProvider,prepareCredential} from './firebase-auth.mjs';
 const enc=new TextEncoder(),HOUR=3600000;
 const fail=code=>{throw Error(code);};
 export const randomToken=()=>Array.from(crypto.getRandomValues(new Uint8Array(32)),x=>x.toString(16).padStart(2,'0')).join('');
 export async function digest(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(value))),x=>x.toString(16).padStart(2,'0')).join('');}
 const fresh=()=>({version:1,initialized:false,revision:0,epoch:0,blocked:false,accounts:null,question:'',sessions:{},attempts:{},links:{},selectedLink:null,hidden:false,retiredAccounts:[]});
-const state=current=>current||fresh();
+// Realtime Database removes empty objects/arrays. Restore collections on read.
+const state=current=>({...fresh(),...current,sessions:current?.sessions||{},attempts:current?.attempts||{},links:current?.links||{},retiredAccounts:current?.retiredAccounts||[]});
 function clean(s,now){s.sessions=Object.fromEntries(Object.entries(s.sessions||{}).filter(([,v])=>v.expires>now&&v.epoch===s.epoch));}
 function session(s,hash,now){clean(s,now);if(!s.initialized||s.blocked||!s.sessions[hash])fail('MANAGEMENT_LOGIN_REQUIRED');}
 function passcode(input){if(typeof input!=='string'||!/^\d{6,12}$/.test(input))fail('PASSCODE_FORMAT');}

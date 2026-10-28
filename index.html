@@ -4,19 +4,8 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>SÖスコア</title>
-<!-- Firebase SDK (compat版: StreamLabs等の旧Chromiumでも動作) -->
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
-<script>
-(function() {
-  const firebaseConfig = {
-    databaseURL: 'https://so-molkky-score-default-rtdb.asia-southeast1.firebasedatabase.app/'
-  };
-  const app = firebase.initializeApp(firebaseConfig);
-  const db = firebase.database();
-  window._fbSet = (path, data) => db.ref(path).set(data);
-})();
-</script>
+<meta name="referrer" content="no-referrer">
+<script src="stream-client.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 
@@ -302,7 +291,9 @@ const LIGHT_COLORS = ['#FFF0E8','#E8F6FC','#F5EEF8','#E9F7EF','#FEF5E7','#FDEDEC
 // ═══════════════════════════════════════════════════════════════
 // 状態管理
 // ═══════════════════════════════════════════════════════════════
-const STORAGE_KEY = 'molkky_so_v2';
+const stream = window.MolkkyStreamClient ? new window.MolkkyStreamClient() : null;
+let _streamTransition = false;
+const STORAGE_KEY = stream?.active ? stream.cacheKey : 'molkky_so_v2';
 
 let S = loadState() || {
   phase: 'setup',          // setup | playing | set_finished | finished
@@ -326,7 +317,10 @@ let S = loadState() || {
 };
 
 function saveState() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(S)); } catch(e) {}
+  if (_streamTransition || (stream?.active && !stream.canEdit())) return;
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(S)); } catch(e) {
+    if (stream?.active) { stream.storageFailed=true;stream.locked=true;stream.message='端末に保存できません。未反映の記録を出力してください。';stream.changed(); }
+  }
 }
 
 function readSavedGameName() {
@@ -358,6 +352,7 @@ function initTeams(names, keepSetStats) {
 }
 
 function applyThrow(teamIdx, points) {
+  if (stream?.active && !stream.canEdit()) return;
   const team = S.teams[teamIdx];
   if (!team || team.isEliminated) return;
 
@@ -433,6 +428,7 @@ function advanceTurn() {
 }
 
 function undoLastThrow() {
+  if (stream?.active && !stream.canEdit()) return;
   if (editingCurrentOrder() || (S.phase !== 'playing' && S.phase !== 'set_finished')) return;
   if (S.editedSet && recordSequence().length) { undoCorrectedSet(); return; }
   if (uniformMode() && S.phase === 'playing' && S.turnCount === 0 && S.previousSetUndo) {
@@ -502,6 +498,7 @@ function undoLastThrow() {
 }
 
 function restartUniformSet() {
+  if(stream?.active&&!stream.canEdit())return;
   const previous = S.setResults[S.setResults.length - 1];
   S.teams.forEach(t => {
     const old = previous?.scores.find(sc => sc.teamId === t.id);
@@ -593,6 +590,7 @@ function endSet(setWinnerId) {
 }
 
 function nextSet() {
+  if (stream?.active && !stream.canEdit()) return;
   if (!validMemberSelection(true)) return;
   const draft = getOrderDraft();
   S.currentSet++;
@@ -624,6 +622,7 @@ function nextSet() {
 }
 
 function endGame(winnerId) {
+  if (stream?.active && !stream.canEdit()) return;
   S.phase = 'finished';
   S.winnerId = winnerId;
   S.finishedAt = Date.now();
@@ -650,6 +649,7 @@ function endGame(winnerId) {
 }
 
 function startGame() {
+  if (stream?.active && !_streamTransition) return managedNewMatch(() => startGame());
   captureSetupInputs();
   enforceRegulationSettings();
   ensureSetupTeams();
@@ -689,6 +689,7 @@ function startGame() {
 }
 
 function resetGame() {
+  if (stream?.active && !_streamTransition) return managedNewMatch(() => resetGame());
   clearThrowTimer();
   S.orderEdit=null;S.nextTeamOrderDraft=null;
   _sheetOpen = false; _scoreEdit = null; S.editedSet = false; S.sheetSet = null; S.archivedRecordId = null;
@@ -711,6 +712,7 @@ function resetGame() {
 }
 
 function rematch() {
+  if (stream?.active && !_streamTransition) return managedNewMatch(() => rematch());
   clearThrowTimer();
   const draftTeams = S.initialOrder
     ? S.initialOrder.map(id => S.teams.find(t => t.id === id)) : S.teams;
@@ -734,19 +736,13 @@ function rematch() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ライブ同期（BroadcastChannel + localStorage）
+// リンク単位の同期（通常ホームは端末内のみ）
 // ═══════════════════════════════════════════════════════════════
-let bc = null;
-try { bc = new BroadcastChannel('molkky_live'); } catch(e) {}
 
 function broadcastState() {
-  const payload = JSON.stringify({ type: 'state', data: getPublicState() });
-  if (bc) bc.postMessage(payload);
-  try { localStorage.setItem('molkky_live_state', payload); } catch(e) {}
-  // Firebase Realtime Database に書き込む（クロスデバイス同期）
-  if (window._fbSet) {
-    try { window._fbSet('game', getPublicState()); } catch(e) {}
-  }
+  if (_streamTransition) return;
+  if (stream?.active) stream.publish(S, getPublicState());
+  // 通常ホームの記録はこの端末だけに保存する。
 }
 
 function getPublicState() {
@@ -822,6 +818,7 @@ function render() {
   app.innerHTML = buildApp();
   bindEvents();
   syncThrowTimer();
+  updateStreamControls();
   broadcastState();
 }
 
@@ -833,9 +830,11 @@ function buildApp() {
         <h1>SÖスコア</h1>
         <p>モルック スコア管理 &amp; ライブ配信</p>
       </div>
-      ${isLive ? '<span class="live-badge">● LIVE</span>' : ''}
+      ${isLive ? '<span class="live-badge">'+(stream?.active?'リンク入力':'端末内の試合')+'</span>' : ''}
     </div>
 
+    <a class="btn btn-gray" href="https://so-molkky-score-api.sou-underscore.workers.dev/" style="display:inline-block;margin-bottom:12px;text-decoration:none;">管理者メニュー</a>
+    <div id="stream-status" role="status">${stream?.active?'':'<p class="member-note">この画面の試合は、この端末に保存します。配信する場合は管理者メニューで入力リンクを発行して開いてください。</p>'}</div>
     <div class="tabs">
       <div class="tab ${_tab==='game'?'active':''}" onclick="switchTab('game')">🎯 試合</div>
       <div class="tab ${_tab==='stats'?'active':''}" onclick="switchTab('stats')">📈 成績</div>
@@ -1001,6 +1000,7 @@ function getOrderDraft() {
 }
 
 function moveOrder(from, to) {
+  if(stream?.active&&!stream.canEdit())return;
   const draft = getOrderDraft();
   if(from<0||from>=draft.length||to<0||to>=draft.length)return;
   const item = draft.splice(from, 1)[0];
@@ -1399,18 +1399,21 @@ function memberEditorTeam(teamIdx,next) {
   return next&&editingCurrentOrder()?S.orderEdit.teams[teamIdx]:S.teams[teamIdx];
 }
 function openCurrentOrder() {
+  if(stream?.active&&!stream.canEdit())return;
   if(S.phase!=='playing'||editingCurrentOrder())return;
   _sheetOpen=false;_scoreEdit=null;
   S.orderEdit={setNum:S.currentSet,orderIds:S.teams.map(t=>t.id),teams:S.teams.map(t=>({id:t.id,name:t.name,members:cloneRecord(t.members||[])}))};
   saveState();render();
 }
 function moveCurrentOrder(from,to) {
+  if(stream?.active&&!stream.canEdit())return;
   if(!editingCurrentOrder())return;
   const ids=S.orderEdit.orderIds;
   if(from<0||from>=ids.length||to<0||to>=ids.length)return;
   ids.splice(to,0,ids.splice(from,1)[0]);saveState();render();
 }
 function cancelCurrentOrder() {
+  if(stream?.active&&!stream.canEdit())return;
   S.orderEdit=null;saveState();render();
 }
 function buildCurrentOrderEditor() {
@@ -1430,12 +1433,14 @@ function buildCurrentOrderEditor() {
   </div></div>`;
 }
 function confirmCurrentOrder() {
+  if (stream?.active && !stream.canEdit()) return;
   if(!editingCurrentOrder()||!validMemberSelection(true))return;
   const count=S.teams.reduce((n,t)=>n+t.history.length,0);
   if(count)showConfirm(`現在のセットの${count}投の記録を削除し、変更した順番でこのセットをやり直します。終了済みセットは保持します。よろしいですか？`,applyCurrentOrder);
   else applyCurrentOrder();
 }
 function applyCurrentOrder() {
+  if(stream?.active&&!stream.canEdit())return;
   if(!editingCurrentOrder()||!validMemberSelection(true))return;
   const draft=S.orderEdit,start=currentSetStart();
   S.teams=draft.orderIds.map(id=>{
@@ -1480,6 +1485,7 @@ function memberDraft(teamIdx, next) {
   return next ? t.nextMembers : t.members;
 }
 function addMember(teamIdx) {
+  if(stream?.active&&!stream.canEdit())return;
   if (S.phase !== 'setup') return;
   captureSetupInputs();
   const list = memberDraft(teamIdx, false);
@@ -1487,10 +1493,12 @@ function addMember(teamIdx) {
   saveState(); render();
 }
 function removeMember(teamIdx, idx) {
+  if(stream?.active&&!stream.canEdit())return;
   if (S.phase !== 'setup') return;
   captureSetupInputs(); memberDraft(teamIdx,false).splice(idx,1); saveState(); render();
 }
 function moveMember(teamIdx, from, to, next = false) {
+  if(stream?.active&&!stream.canEdit())return;
   if (next ? S.phase!=='set_finished'&&!editingCurrentOrder() : S.phase!=='setup') return;
   captureSetupInputs(); const list = memberDraft(teamIdx,next);
   if (to<0 || to>=list.length || from<0 || from>=list.length) return;
@@ -1549,6 +1557,7 @@ function sheetColumns(sc) {
 }
 function sheetGoal(g,sr) { return g.settings.regMode==='uniform' ? Math.min(g.settings.targetScore,sr.setNum*50) : g.settings.targetScore; }
 function mayEditSet(setNum) {
+  if(stream?.active&&!stream.canEdit())return false;
   return !editingCurrentOrder() && ['playing','set_finished','finished'].includes(S.phase) && setNum===S.currentSet;
 }
 function buildSheetTable(g,sr,editable=false) {
@@ -1594,6 +1603,7 @@ function sheetActionButton(label='スコアシートを確認・修正',historyI
 }
 function buildStatsTab() { return _sheetOpen ? buildSheetBrowser() : `<div class="card"><div class="card-body">${sheetActionButton('スコアシートを見る')}</div></div>`; }
 function openScoreEdit(setNum,teamId,hi) {
+  if(stream?.active&&!stream.canEdit())return;
   if (_sheetHistoryIdx>=0 || !mayEditSet(setNum)) return;
   const t=S.teams.find(t=>t.id===teamId), h=t?.history[hi];
   if (!h) return;
@@ -1673,6 +1683,7 @@ function proposeScoreEdit(teamId,hi,points) {
   return replayCurrentSet(events);
 }
 function saveScoreEdit() {
+  if (stream?.active && !stream.canEdit()) return;
   if(!_scoreEdit||!mayEditSet(_scoreEdit.setNum))return;
   const {teamId,hi}=_scoreEdit;
   const result=proposeScoreEdit(teamId,hi,Number(document.getElementById('score-edit-value').value));
@@ -1683,6 +1694,7 @@ function saveScoreEdit() {
   } else applyReplayedSet(result);
 }
 function undoCorrectedSet() {
+  if (stream?.active && !stream.canEdit()) return;
   const events=recordSequence();if(!events.length)return false;
   events.pop(); applyReplayedSet(replayCurrentSet(events));return true;
 }
@@ -1750,7 +1762,7 @@ async function saveScoresheet(historyIdx=-1) {
 }
 
 // 手動投擲タイマー。得点入力とは独立し、再描画・再読み込み後も経過を維持する。
-const THROW_TIMER_KEY = 'molkky_throw_timer_v1';
+const THROW_TIMER_KEY = 'molkky_throw_timer_v1' + (stream?.active ? '_' + stream.id : '');
 let throwTimer = loadThrowTimer();
 let throwTimerInterval = null;
 function throwTimerNow() { return Date.now(); }
@@ -2044,7 +2056,7 @@ function buildOverlayInfo() {
   return `
     <div class="overlay-box">
       <div style="font-weight:700;margin-bottom:4px;">📺 OBSオーバーレイ</div>
-      <div style="font-size:12px;color:#94a3b8;margin-bottom:6px;">OBSの「ブラウザソース」にこのURLを追加するとスコアがリアルタイムで配信画面に表示されます</div>
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:6px;">管理者メニューで選択した入力リンクの試合を、この固定URLに表示します。OBSの「ブラウザソース」に追加してください。</div>
       <div class="url-row">
         <input type="text" id="overlay-url-input" readonly value="${overlayUrl}" style="flex:1;"/>
         <button class="copy-btn" id="copy-overlay-btn" onclick="copyOverlayUrl()">コピー</button>
@@ -2059,6 +2071,7 @@ function buildOverlayInfo() {
 // ═══════════════════════════════════════════════════════════════
 // 再描画の前と入力時に、設定フォームの値を状態へ退避する。
 function captureSetupInputs() {
+  if (stream?.active && !stream.canEdit()) return;
   if (S.phase !== 'setup') return;
   const gameName = document.getElementById('game-name');
   if (!gameName) return;
@@ -2102,6 +2115,7 @@ function switchTab(tab) {
 }
 
 function updateTeamCount(val) {
+  if (stream?.active && !stream.canEdit()) return;
   captureSetupInputs();
   S.settings.teamCount = S.settings.regMode === 'prime' ? 2 : parseInt(val);
   ensureSetupTeams();
@@ -2110,6 +2124,7 @@ function updateTeamCount(val) {
 }
 
 function moveSetupTeam(from, to) {
+  if (stream?.active && !stream.canEdit()) return;
   captureSetupInputs();
   if (to < 0 || to >= S.teams.length || from < 0 || from >= S.teams.length) return;
   const team = S.teams.splice(from, 1)[0];
@@ -2118,6 +2133,7 @@ function moveSetupTeam(from, to) {
 }
 
 function clearSetupField(field) {
+  if (stream?.active && !stream.canEdit()) return;
   captureSetupInputs();
   if (field === 'game') {
     S.settings.gameName = '';
@@ -2152,6 +2168,7 @@ function onStartGame() {
 }
 
 function switchRegMode(mode) {
+  if (stream?.active && !stream.canEdit()) return;
   captureSetupInputs();
   // モード切替時にデフォルトNを設定
   const defaults = { match: 2, first: 2, total: 2, uniform: 2, prime: 4, eleven: 11 };
@@ -2166,6 +2183,7 @@ function switchRegMode(mode) {
 }
 
 function setUniformTarget(n) {
+  if (stream?.active && !stream.canEdit()) return;
   captureSetupInputs();
   S.settings.regMode = 'uniform';
   S.settings.targetScore = normalizedRegValue(n, 'uniform');
@@ -2174,6 +2192,7 @@ function setUniformTarget(n) {
 }
 
 function setRegulation(mode, n) {
+  if (stream?.active && !stream.canEdit()) return;
   captureSetupInputs();
   S.settings.regMode = mode;
   S.settings.regN = normalizedRegValue(n, mode);
@@ -2191,6 +2210,7 @@ function onUndo() {
 }
 
 function toggleIntended(teamIdx, histIdx) {
+  if (stream?.active && !stream.canEdit()) return;
   const team = S.teams[teamIdx];
   if (!team || !team.history[histIdx]) return;
   team.history[histIdx].intended = !(team.history[histIdx].intended !== false);
@@ -2211,6 +2231,7 @@ function confirmEndGame() {
 }
 
 function confirmClearHistory() {
+  if (stream?.active && !stream.canEdit()) return;
   showConfirm('履歴をすべて削除しますか？', () => {
     S.history = [];
     saveState();
@@ -2300,10 +2321,62 @@ function escHtml(str) {
 // 初期化
 // ═══════════════════════════════════════════════════════════════
 if(typeof document.addEventListener==='function')installButtonFeedback();
+if (stream?.active) {
+  stream.getState = () => JSON.stringify(S);
+  stream.onState = state => { S=state; _orderDraft=null; _scoreEdit=null; render(); };
+  stream.onStatus = updateStreamControls;
+  void stream.start();
+}
+
+function updateStreamControls() {
+  if (!stream?.active) return;
+  const box=document.getElementById('stream-status'); if(!box)return;
+  box.replaceChildren(); box.style.cssText='background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:12px;margin:0 0 12px;';
+  const label=document.createElement('p');label.textContent=stream.statusText();box.append(label);
+  const button=(label,fn)=>{const b=document.createElement('button');b.className='btn btn-gray btn-sm';b.textContent=label;b.onclick=async()=>{b.disabled=true;try{await fn();}catch(e){alert(e.message==='UNSENT_RECORDS'?'未同期の記録があります。接続と同期が完了してから操作してください。': '操作できませんでした。接続や入力担当を確認してください。');}finally{updateStreamControls();}};box.append(b);};
+  if(stream.ready&&!stream.info?.hasOwner&&!stream.hasPending())button('この端末で入力する',()=>stream.action('claim'));
+  if(stream.ready&&stream.info?.hasOwner&&!stream.info.isOwner)button(stream.info.transfer?.isRequester?'交代申請を取り消す':'入力交代を申請',()=>stream.action(stream.info.transfer?.isRequester?'cancel':'request'));
+  if(stream.info?.isOwner&&stream.info.transfer&&!stream.info.transfer.isRequester){button('交代を承認する',()=>stream.action('approve'));button('申請を断る',()=>stream.action('cancel'));}
+  button('接続・同期を確認',()=>stream.refresh());
+  if(stream.hasPending()||stream.storageFailed){button('未反映の記録を出力',()=>stream.download());if(stream.locked)button('サーバー保存済みの記録に戻る',async()=>{if(confirm('未反映の記録を先に出力して保管してください。この端末の未送信分を取り除き、サーバー保存済みの記録を表示しますか？'))await stream.discardLocal();});}
+  if(stream.canEdit()&&S.phase==='setup'){
+    button('この端末の従来の試合を引き継ぐ',async()=>{
+      const raw=localStorage.getItem('molkky_so_v2');if(!raw){alert('従来の記録はこの端末にありません。');return;}
+      if(confirm('この端末に保存されている従来の試合と履歴を、この入力リンクに移しますか？元の記録も端末に残します。')){S=JSON.parse(raw);saveState();render();}
+    });
+  }
+  const readonly=!stream.canEdit()||_streamTransition;
+  document.querySelectorAll('#app input,#app select').forEach(el=>el.disabled=readonly);
+  document.querySelectorAll('#app button').forEach(el=>{
+    if(box.contains(el))return;
+    // 閲覧者にも記録閲覧・画像出力・タブ移動を許可する。
+    const action=el.getAttribute('onclick')||'';
+    const view=/^(switchTab|openScoresheet|closeScoresheet|openSheet|closeModal|saveScoresheet|showScoresheet|navigateSheet|changeSheet|copyOverlayUrl|toggleThrowTimer|resetThrowTimer)/.test(action);
+    if(readonly&&!view){el.disabled=true;el.dataset.streamDisabled='1';}
+    else if(el.dataset.streamDisabled){el.disabled=false;delete el.dataset.streamDisabled;}
+  });
+}
+
+async function managedNewMatch(change) {
+  if(!stream.canEdit()||_streamTransition)return;
+  _streamTransition=true;updateStreamControls();
+  await stream.flush();
+  if(stream.hasPending()||stream.offline||stream.busy){_streamTransition=false;updateStreamControls();alert('次の試合は、接続と同期が完了してから開始してください。');return;}
+  const before=JSON.stringify(S);let next,view;
+  _streamTransition=true;
+  try { change();next=JSON.parse(JSON.stringify(S));view=getPublicState(); }
+  catch(e){S=JSON.parse(before);_streamTransition=false;render();throw e;}
+  S=JSON.parse(before);render();
+  try{await stream.newMatch(next,view);S=next;}
+  catch{S=next;alert('新しい試合の保存を確認できませんでした。接続・同期を確認してください。');}
+  finally{_streamTransition=false;saveState();render();}
+}
+
 render();
 </script>
 </body>
 </html>
+
 
 
 
