@@ -23,7 +23,9 @@ export class FirebasePasswordProvider {
       if(url.protocol!=='http:' || url.hostname!=='127.0.0.1' || url.username || url.password || url.search || url.hash) throw Error('INVALID_EMULATOR_URL');
       base=url.href.replace(/\/$/,'')+'/identitytoolkit.googleapis.com/v1';
     }
-    this.apiKey=apiKey;this.pepper=pepper;this.accounts=structuredClone(accounts);this.fetch=fetchImpl;this.base=base;
+    // Workers' native fetch rejects a provider instance as its receiver.
+    // Call the injected function without binding `this` to this class.
+    this.apiKey=apiKey;this.pepper=pepper;this.accounts=structuredClone(accounts);this.fetch=(...args)=>fetchImpl(...args);this.base=base;
   }
   async call(method,body) {
     let response;
@@ -31,10 +33,10 @@ export class FirebasePasswordProvider {
       response=await this.fetch(`${this.base}/accounts:${method}?key=${encodeURIComponent(this.apiKey)}`,{
         method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(8000)
       });
-    } catch { throw Error('AUTH_UNAVAILABLE'); }
+    } catch (error) { throw new Error('AUTH_UNAVAILABLE',{cause:{stage:'fetch',name:error.name}}); }
     // Error text may contain provider details: do not expose it to the caller.
     if(response.status===429){await response.body?.cancel();throw Error('RATE_LIMITED');}
-    if(response.status>=500){await response.body?.cancel();throw Error('AUTH_UNAVAILABLE');}
+    if(response.status>=500){await response.body?.cancel();throw new Error('AUTH_UNAVAILABLE',{cause:{stage:'upstream',status:response.status}});}
     if(!response.ok){await response.body?.cancel();throw Error('INVALID_CREDENTIAL');}
     let data;
     try {
@@ -42,7 +44,7 @@ export class FirebasePasswordProvider {
       for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>32768){await reader.cancel();throw Error('TOO_LARGE');}chunks.push(value);}
       const raw=new Uint8Array(size);let offset=0;for(const chunk of chunks){raw.set(chunk,offset);offset+=chunk.length;}
       data=JSON.parse(new TextDecoder().decode(raw));
-    } catch {throw Error('AUTH_UNAVAILABLE');}
+    } catch (error) {throw new Error('AUTH_UNAVAILABLE',{cause:{stage:'response',name:error.name}});}
     return data;
   }
   async verify(role,input) {
