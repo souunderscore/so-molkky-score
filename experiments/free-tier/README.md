@@ -3,6 +3,25 @@
 2026-10-28作成。承認済みの[仕様](../../docs/stream-management-spec.md)に対する独立した検証コードです。
 **本番用の認証・同期サーバーではありません。既存のindex.html、overlay.html、Firebase Rulesは変更しません。**
 
+## Cloudflare本番の結果（2026-10-28）
+
+プラグイン接続後、所有者の既存の検証Workerに、GitHub保存済みのdashboard-probe.mjsを配置して試験しました。
+Firebase・公開スコアアプリ・DBルール・料金設定は変更していません。
+
+- 配置成功: deployment_id `3baf0a8cca5c4dbb8056ecf3956b710e`。
+- 本番の/probe応答: HTTP 503。
+- エラー: `NotSupportedError: Pbkdf2 failed: iteration counts above 100000 are not supported (requested 600000).`
+- ローカルWrangler 4.154.0で成功しても、現時点の本番暗号APIでは同じ600,000反復を受け付けませんでした。
+- **600,000反復の直接照合候補は不採用。** CPU制限に収まるか以前の互換性の問題です。
+- 反復回数を下げたり、平文で比較する変更はしていません。Cloudflare全体が利用できないという結論ではありません。
+- Workerは試験終了後、workers.dev公開を無効化して残します。コードは再検証用に保持します。
+- 課金情報を読むAPIはOAuth権限外でした。料金プランをAPIで確定したとは扱いません。課金設定の変更は行っていません。
+
+次はFirebase Authenticationなど既存の無料認証サービスに重い照合を委ね、
+Workerでリンク・担当・更新番号を確認する構成を検討します。
+利用者向けのGoogleログインを必須にするという意味ではありません。
+秘密の質問による復旧を含む設計・実装・検証はこれからです。
+
 ## 今回確認したこと
 
 - Node.js v24.22.1上の検証テスト16件が成功。
