@@ -106,9 +106,9 @@ label{display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:5
 .team-color{width:16px;height:16px;border-radius:4px;flex-shrink:0;}
 
 /* ─── OBSオーバーレイ情報 ─── */
-.overlay-box{background:#1e293b;color:#e2e8f0;border-radius:12px;padding:14px;font-size:13px;}
+.overlay-box{border-top:1px solid var(--c-border);margin-top:16px;padding-top:16px;font-size:13px;}
 .overlay-box .url-row{display:flex;gap:8px;align-items:center;margin-top:8px;}
-.overlay-box input{background:#0f172a;color:#94a3b8;border-color:#334155;font-size:12px;font-family:monospace;}
+.overlay-box input{min-width:0;font-size:12px;font-family:monospace;}
 .overlay-box .copy-btn{background:var(--c-blue);color:#fff;border:none;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:13px;white-space:nowrap;}
 .overlay-box .copy-btn.copied{background:var(--c-orange);}
 
@@ -996,7 +996,6 @@ function buildSetup() {
         </div>
       </div>
     </div>
-    ${buildOverlayInfo()}
     <div class="start-actions">
       <button class="btn btn-primary btn-block" onclick="onStartGame()">試合開始 🎯</button>
     </div>
@@ -1140,7 +1139,6 @@ function buildSetFinished() {
         <button class="btn btn-gray btn-block" onclick="confirmReset()" style="margin-top:8px;">試合リセット</button>
       </div>
     </div>
-    ${buildOverlayInfo()}
   `;
 }
 
@@ -1285,7 +1283,6 @@ function buildPlaying() {
       <button class="btn btn-red btn-sm" onclick="confirmEndGame()">🏁 試合終了</button>
     </div>
 
-    ${buildOverlayInfo()}
   `;
 }
 
@@ -1434,7 +1431,6 @@ function buildFinished() {
       <button class="btn btn-primary" style="flex:1;" onclick="rematch()">同じメンバーで再戦</button>
       <button class="btn btn-gray" style="flex:1;" onclick="resetGame()">新しい試合</button>
     </div>
-    ${buildOverlayInfo()}
   `;
 }
 
@@ -2113,13 +2109,11 @@ function buildOverlayInfo() {
   const overlayUrl = location.origin + location.pathname.replace('index.html','') + 'overlay.html';
   return `
     <div class="overlay-box">
-      <div style="font-weight:700;margin-bottom:4px;">📺 OBSオーバーレイ</div>
-      <div style="font-size:12px;color:#94a3b8;margin-bottom:6px;">管理者メニューで選択した入力リンクの試合を、この固定URLに表示します。OBSの「ブラウザソース」に追加してください。</div>
+      <label for="overlay-url-input" style="font-weight:700;margin:0;">オーバーレイURL</label>
       <div class="url-row">
-        <input type="text" id="overlay-url-input" readonly value="${overlayUrl}" style="flex:1;"/>
+        <input type="text" id="overlay-url-input" readonly aria-label="オーバーレイURL" value="${overlayUrl}" style="flex:1;"/>
         <button class="copy-btn" id="copy-overlay-btn" onclick="copyOverlayUrl()">コピー</button>
       </div>
-      <div style="font-size:11px;color:#64748b;margin-top:6px;">推奨サイズ: 幅 420px / 背景透過: ON</div>
     </div>
   `;
 }
@@ -2411,6 +2405,7 @@ function updateOperationsMenu() {
     }
   }
   const admin=document.createElement('a');admin.id='operation-admin';admin.className='operations-action primary';admin.href='https://so-molkky-score-api.sou-underscore.workers.dev/';admin.textContent='管理者メニュー';menu.append(admin);
+  menu.insertAdjacentHTML('beforeend',buildOverlayInfo());
   if(focused&&document.getElementById('operations-menu')?.open)document.getElementById(focused)?.focus();
 }
 function updateStreamControls() {
