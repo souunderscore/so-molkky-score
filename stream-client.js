@@ -8,7 +8,7 @@
     constructor(){
       const u=new URL(location.href);this.id=u.searchParams.get('input');this.active=!!this.id;this.apiBase=API;
       if(!this.active)return;
-      this.storageKey='molkky_stream_'+this.id;this.cacheKey=this.storageKey+'_state';this.message='接続を確認しています…';this.ready=false;this.locked=true;this.offline=false;this.busy=false;this.info=null;
+      this.storageKey='molkky_stream_'+this.id;this.cacheKey=this.storageKey+'_state';this.message='接続を確認しています…';this.ready=false;this.locked=true;this.offline=false;this.busy=false;this.info=null;this.lastError=null;
       try{
         this.cache=JSON.parse(localStorage.getItem(this.storageKey)||'null')||{};
         this.key=new URLSearchParams(u.hash.slice(1)).get('key')||this.cache.key;
@@ -35,6 +35,7 @@
       addEventListener('visibilitychange',()=>{if(!document.hidden)this.refresh();});
     }
     fail(e){
+      this.lastError=e.message;
       if(errors[e.message]||['INVALID_SCORE','MATCH_NOT_FOUND'].includes(e.message)){
         this.locked=true;this.message=errors[e.message]||'記録を確認してください。';
       }else{this.offline=true;this.message='接続待ちです。現在の試合は端末に保存されます。';}
@@ -48,10 +49,10 @@
         // A poll started before a local save may arrive after its confirmation.
         // Do not restore that older snapshot or roll back the confirmed version.
         if(this.busy||this.cache.version!==startedVersion||this.cache.lastJson!==startedJson)return;
-        this.offline=false;
+        this.offline=false;this.lastError=null;
         if(this.cache.inflight&&info.current?.opId===this.cache.inflight.opId){this.cache.version=info.current.version;this.cache.matchId=info.current.id;this.cache.inflight=null;this.persist();}
         if(this.hasPending()&&((this.cache.generation!==info.generation)||!info.isOwner||this.cache.ownerEpoch!==info.ownerEpoch||(this.cache.version??null)!==(info.current?.version??null))){
-          this.info=info;this.locked=true;this.ready=true;this.message='入力権限または試合が変わっています。未送信の記録は端末に残しました。';this.changed();return;
+          this.info=info;this.locked=true;this.ready=true;this.lastError='SCORE_CONFLICT';this.message='入力権限または試合が変わっています。未送信の記録は端末に残しました。';this.changed();return;
         }
         this.info=info;this.ready=true;this.locked=!info.isOwner;
         if(!this.hasPending())this.applyRemote(info);
@@ -80,7 +81,7 @@
         while(this.canEdit()&&this.hasPending()){
           if(!this.cache.inflight){this.cache.inflight={...this.cache.pending,opId:crypto.randomUUID(),matchId:this.cache.matchId||crypto.randomUUID(),version:this.cache.version??null,ownerEpoch:this.cache.ownerEpoch,operation:this.cache.matchId?'save':'new'};this.cache.pending=null;this.persist();}
           const flight=this.cache.inflight;const info=await this.api(flight.operation,flight);
-          this.cache.version=info.current.version;this.cache.matchId=info.current.id;this.cache.inflight=null;this.info=info;this.persist();this.offline=false;this.message='同期済み・入力担当：この端末';this.changed();
+          this.cache.version=info.current.version;this.cache.matchId=info.current.id;this.cache.inflight=null;this.info=info;this.persist();this.offline=false;this.lastError=null;this.message='同期済み・入力担当：この端末';this.changed();
         }
       }catch(e){this.fail(e);}finally{this.busy=false;}
     }
@@ -101,7 +102,7 @@
     }
     async discardLocal(){
       if(this.busy)return;
-      const info=await this.api('inspect');this.cache.pending=null;this.cache.inflight=null;this.cache.lastJson=null;this.applyRemote(info);this.locked=!info.isOwner;this.ready=true;this.message='サーバーに保存された記録を表示しています。';this.changed();
+      const info=await this.api('inspect');this.cache.pending=null;this.cache.inflight=null;this.cache.lastJson=null;this.applyRemote(info);this.locked=!info.isOwner;this.ready=true;this.lastError=null;this.message='サーバーに保存された記録を表示しています。';this.changed();
     }
     download(){const blob=new Blob([JSON.stringify({linkId:this.id,exportedAt:new Date().toISOString(),localState:this.getState?.()||localStorage.getItem(this.cacheKey),pending:this.cache.pending,inflight:this.cache.inflight},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='molkky-unsent-records.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
   }

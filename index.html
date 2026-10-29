@@ -216,6 +216,22 @@ input[type=text],input[type=number],select{font-size:16px;min-height:44px;}
 @keyframes button-tap-fade{from{opacity:1;}to{opacity:0;}}
 @media(prefers-reduced-motion:reduce){.btn,.pin-btn,button,.tab{transition:none;}.btn.is-pressed,.btn:active,.pin-btn.is-pressed,.pin-btn:active,button.is-pressed,button:active,.tab.is-pressed,.tab:active{transform:none;}.button-tap-flash{animation-duration:.15s;}}
 
+
+/* Compact header and occasional actions in a bottom sheet. */
+.compact-header{justify-content:space-between;margin-bottom:6px;}
+.heading-copy{min-width:0;}.heading-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.input-role{font-size:11px;font-weight:500;color:var(--c-muted);white-space:nowrap;}
+.input-role.is-owner{color:#218057;}
+.settings-toggle{flex:0 0 44px;width:44px;height:44px;border:1px solid var(--c-border);background:var(--c-surface);border-radius:50%;color:var(--c-muted);font:27px/1 system-ui;display:grid;place-items:center;cursor:pointer;}
+.stream-notice{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;margin:0 0 10px;border-radius:9px;background:#fff7ed;color:#9a4b0c;font-size:12px;}
+.stream-notice[hidden]{display:none;}.stream-notice>span{flex:1;min-width:150px;}.stream-notice .btn{min-height:36px;}
+.operations-sheet{box-sizing:border-box;border:0;border-radius:20px 20px 0 0;margin:auto auto 0;padding:0;width:100%;max-width:520px;max-height:80vh;max-height:80dvh;overflow:auto;color:var(--c-text);background:var(--c-surface);box-shadow:0 -10px 40px #17233222;}
+.operations-sheet::backdrop{background:rgba(20,30,45,.4);}
+.operations-heading{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 8px;}.operations-heading h2{font-size:17px;}.operations-heading button{border:0;background:transparent;font:22px system-ui;min-width:44px;min-height:44px;color:var(--c-muted);cursor:pointer;}
+.operations-content{padding:0 18px max(20px,env(safe-area-inset-bottom));}.operations-context{font-size:12px;line-height:1.7;color:var(--c-muted);margin-bottom:12px;}
+.operations-action{display:block;box-sizing:border-box;width:100%;min-height:48px;margin:6px 0;padding:12px 14px;text-align:left;font-family:inherit;font-size:14px;line-height:1.5;text-decoration:none;color:var(--c-text);border:1px solid var(--c-border);border-radius:10px;background:var(--c-surface);cursor:pointer;}.operations-action:disabled{opacity:.45;}.operations-action.primary{color:var(--c-orange);border-color:#ffcfb8;background:#fff8f4;}
+body.operations-open{overflow:hidden;}
+
 </style>
 </head>
 <body>
@@ -242,6 +258,11 @@ input[type=text],input[type=number],select{font-size:16px;min-height:44px;}
   <label for="score-edit-value">得点</label><select id="score-edit-value"><option value="0">ミス（0点）</option><option value="1">1点</option><option value="2">2点</option><option value="3">3点</option><option value="4">4点</option><option value="5">5点</option><option value="6">6点</option><option value="7">7点</option><option value="8">8点</option><option value="9">9点</option><option value="10">10点</option><option value="11">11点</option><option value="12">12点</option></select>
   <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;"><button class="btn" onclick="closeModal('modal-score-edit')">キャンセル</button><button class="btn btn-primary" onclick="saveScoreEdit()">修正を保存</button></div>
 </div></div>
+
+<dialog id="operations-menu" class="operations-sheet" aria-labelledby="operations-title" onclose="operationsMenuClosed()" onclick="if(event.target===this){const r=this.getBoundingClientRect();if(event.clientY&lt;r.top||event.clientY&gt;r.bottom||event.clientX&lt;r.left||event.clientX&gt;r.right)closeOperationsMenu();}">
+  <div class="operations-heading"><h2 id="operations-title">設定と操作</h2><button onclick="closeOperationsMenu()" aria-label="閉じる">×</button></div>
+  <div id="operations-content" class="operations-content"></div>
+</dialog>
 
 <script>
 // ═══════════════════════════════════════════════════════════════
@@ -291,9 +312,20 @@ const LIGHT_COLORS = ['#FFF0E8','#E8F6FC','#F5EEF8','#E9F7EF','#FEF5E7','#FDEDEC
 // ═══════════════════════════════════════════════════════════════
 // 状態管理
 // ═══════════════════════════════════════════════════════════════
+// One-time retirement of the old, device-only storage. Link caches and
+// their pending records use separate keys and are kept.
+function retireLegacyStorage() {
+  try {
+    if(localStorage.getItem('molkky_legacy_reset_v1')==='done')return;
+    for(const key of ['molkky_so_v2','molkky_game_name','molkky_live_state','molkky_throw_timer_v1'])localStorage.removeItem(key);
+    localStorage.setItem('molkky_legacy_reset_v1','done');
+  } catch {}
+}
+retireLegacyStorage();
+let _operationsOpen=false;
 const stream = window.MolkkyStreamClient ? new window.MolkkyStreamClient() : null;
 let _streamTransition = false;
-const STORAGE_KEY = stream?.active ? stream.cacheKey : 'molkky_so_v2';
+const STORAGE_KEY = stream?.active ? stream.cacheKey : 'molkky_local_v3';
 
 let S = loadState() || {
   phase: 'setup',          // setup | playing | set_finished | finished
@@ -324,7 +356,7 @@ function saveState() {
 }
 
 function readSavedGameName() {
-  try { return localStorage.getItem('molkky_game_name') || ''; } catch(e) { return ''; }
+  try { return localStorage.getItem('molkky_game_name_v3') || ''; } catch(e) { return ''; }
 }
 
 function loadState() {
@@ -666,7 +698,7 @@ function startGame() {
   S.settings.gameName = gname ? gname.value.trim() : '';
   // 大会名を別途保存（次回起動時に自動復元）
   if (S.settings.gameName) {
-    try { localStorage.setItem('molkky_game_name', S.settings.gameName); } catch(e) {}
+    try { localStorage.setItem('molkky_game_name_v3', S.settings.gameName); } catch(e) {}
   }
 
   S.teams = initTeams(names).map((t, i) => ({ ...t, id: draftTeams[i].id, colorIdx: draftTeams[i].colorIdx ?? draftTeams[i].id, members: cloneRecord(draftTeams[i].members || []) }));
@@ -823,24 +855,20 @@ function render() {
 }
 
 function buildApp() {
-  const isLive = S.phase === 'playing';
   return `
-    <div class="page-header">
-      <div>
-        <h1>SÖスコア</h1>
+    <div class="page-header compact-header">
+      <div class="heading-copy">
+        <div class="heading-title"><h1>SÖスコア</h1><span id="input-role" class="input-role"></span></div>
         <p>モルック スコア管理 &amp; ライブ配信</p>
       </div>
-      ${isLive ? '<span class="live-badge">'+(stream?.active?'リンク入力':'端末内の試合')+'</span>' : ''}
+      <button class="settings-toggle" id="operations-toggle" data-stream-control aria-label="設定と操作" aria-haspopup="dialog" aria-controls="operations-menu" aria-expanded="${_operationsOpen}" onclick="openOperationsMenu()"><span aria-hidden="true">⚙︎</span></button>
     </div>
-
-    <a class="btn btn-gray" href="https://so-molkky-score-api.sou-underscore.workers.dev/" style="display:inline-block;margin-bottom:12px;text-decoration:none;">管理者メニュー</a>
-    <div id="stream-status" role="status">${stream?.active?'':'<p class="member-note">この画面の試合は、この端末に保存します。配信する場合は管理者メニューで入力リンクを発行して開いてください。</p>'}</div>
+    <div id="stream-status" class="stream-notice" role="status" hidden></div>
     <div class="tabs">
       <div class="tab ${_tab==='game'?'active':''}" onclick="switchTab('game')">🎯 試合</div>
       <div class="tab ${_tab==='stats'?'active':''}" onclick="switchTab('stats')">📈 成績</div>
       <div class="tab ${_tab==='history'?'active':''}" onclick="switchTab('history')">📋 履歴</div>
     </div>
-
     ${_sheetOpen ? buildSheetBrowser() : _tab === 'game' ? buildGameTab() : _tab === 'stats' ? buildStatsTab() : buildHistoryTab()}
   `;
 }
@@ -1762,7 +1790,7 @@ async function saveScoresheet(historyIdx=-1) {
 }
 
 // 手動投擲タイマー。得点入力とは独立し、再描画・再読み込み後も経過を維持する。
-const THROW_TIMER_KEY = 'molkky_throw_timer_v1' + (stream?.active ? '_' + stream.id : '');
+const THROW_TIMER_KEY = stream?.active ? 'molkky_throw_timer_v1_' + stream.id : 'molkky_throw_timer_v3';
 let throwTimer = loadThrowTimer();
 let throwTimerInterval = null;
 function throwTimerNow() { return Date.now(); }
@@ -2138,7 +2166,7 @@ function clearSetupField(field) {
   captureSetupInputs();
   if (field === 'game') {
     S.settings.gameName = '';
-    try { localStorage.setItem('molkky_game_name', ''); } catch(e) {}
+    try { localStorage.setItem('molkky_game_name_v3', ''); } catch(e) {}
   } else if (S.teams[field]) {
     S.teams[field].name = '';
   }
@@ -2329,28 +2357,49 @@ if (stream?.active) {
   void stream.start();
 }
 
+function openOperationsMenu() {
+  const dialog=document.getElementById('operations-menu');if(!dialog)return;
+  captureSetupInputs();updateOperationsMenu();
+  _operationsOpen=true;document.getElementById('operations-toggle')?.setAttribute('aria-expanded','true');
+  document.body.classList.add('operations-open');if(!dialog.open)dialog.showModal();
+}
+function closeOperationsMenu(){document.getElementById('operations-menu')?.close();}
+function operationsMenuClosed(){_operationsOpen=false;document.body.classList.remove('operations-open');const toggle=document.getElementById('operations-toggle');toggle?.setAttribute('aria-expanded','false');toggle?.focus();}
+function updateOperationsMenu() {
+  const menu=document.getElementById('operations-content');if(!menu)return;
+  const focused=document.activeElement?.id;menu.replaceChildren();
+  const context=document.createElement('p');context.className='operations-context';
+  context.textContent=stream?.active?stream.message:'この画面の試合は、この端末に保存します。配信する場合は管理者メニューで入力リンクを発行して開いてください。';menu.append(context);
+  const button=(text,action,fn)=>{const b=document.createElement('button');b.id='operation-'+action;b.className='operations-action';b.textContent=text;b.onclick=async()=>{b.disabled=true;try{await fn();closeOperationsMenu();}catch(e){alert(e.message==='UNSENT_RECORDS'?'未同期の記録があります。接続と同期が完了してから操作してください。':'操作できませんでした。接続や入力担当を確認してください。');}finally{updateStreamControls();}};menu.append(b);};
+  if(stream?.active){
+    if(stream.ready&&!stream.lastError&&!stream.info?.hasOwner&&!stream.hasPending())button('この端末で入力する','claim',()=>stream.action('claim'));
+    if(stream.ready&&!stream.lastError&&stream.info?.hasOwner&&!stream.info.isOwner)button(stream.info.transfer?.isRequester?'交代申請を取り消す':'入力交代を申請','request',()=>stream.action(stream.info.transfer?.isRequester?'cancel':'request'));
+    if(stream.info?.isOwner&&stream.info.transfer&&!stream.info.transfer.isRequester){button('交代を承認する','approve',()=>stream.action('approve'));button('申請を断る','cancel',()=>stream.action('cancel'));}
+    if(stream.hasPending()||stream.storageFailed){
+      button('未反映の記録を出力','export',()=>stream.download());
+      if(stream.locked)button('サーバー保存済みの記録に戻る','restore',async()=>{if(confirm('未反映の記録を先に出力して保管してください。この端末の未送信分を取り除き、サーバー保存済みの記録を表示しますか？'))await stream.discardLocal();});
+    }
+  }
+  const admin=document.createElement('a');admin.id='operation-admin';admin.className='operations-action primary';admin.href='https://so-molkky-score-api.sou-underscore.workers.dev/';admin.textContent='管理者メニュー';menu.append(admin);
+  if(focused&&document.getElementById('operations-menu')?.open)document.getElementById(focused)?.focus();
+}
 function updateStreamControls() {
-  if (!stream?.active) return;
-  const box=document.getElementById('stream-status'); if(!box)return;
-  box.replaceChildren(); box.style.cssText='background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:12px;margin:0 0 12px;';
-  const label=document.createElement('p');label.textContent=stream.statusText();box.append(label);
-  const button=(label,fn)=>{const b=document.createElement('button');b.className='btn btn-gray btn-sm';b.textContent=label;b.onclick=async()=>{b.disabled=true;try{await fn();}catch(e){alert(e.message==='UNSENT_RECORDS'?'未同期の記録があります。接続と同期が完了してから操作してください。': '操作できませんでした。接続や入力担当を確認してください。');}finally{updateStreamControls();}};box.append(b);};
-  if(stream.ready&&!stream.info?.hasOwner&&!stream.hasPending())button('この端末で入力する',()=>stream.action('claim'));
-  if(stream.ready&&stream.info?.hasOwner&&!stream.info.isOwner)button(stream.info.transfer?.isRequester?'交代申請を取り消す':'入力交代を申請',()=>stream.action(stream.info.transfer?.isRequester?'cancel':'request'));
-  if(stream.info?.isOwner&&stream.info.transfer&&!stream.info.transfer.isRequester){button('交代を承認する',()=>stream.action('approve'));button('申請を断る',()=>stream.action('cancel'));}
-  button('接続・同期を確認',()=>stream.refresh());
-  if(stream.hasPending()||stream.storageFailed){button('未反映の記録を出力',()=>stream.download());if(stream.locked)button('サーバー保存済みの記録に戻る',async()=>{if(confirm('未反映の記録を先に出力して保管してください。この端末の未送信分を取り除き、サーバー保存済みの記録を表示しますか？'))await stream.discardLocal();});}
-  if(stream.canEdit()&&S.phase==='setup'){
-    button('この端末の従来の試合を引き継ぐ',async()=>{
-      const raw=localStorage.getItem('molkky_so_v2');if(!raw){alert('従来の記録はこの端末にありません。');return;}
-      if(confirm('この端末に保存されている従来の試合と履歴を、この入力リンクに移しますか？元の記録も端末に残します。')){S=JSON.parse(raw);saveState();render();}
-    });
+  const box=document.getElementById('stream-status'),role=document.getElementById('input-role');if(!box)return;
+  box.replaceChildren();box.hidden=true;
+  if(role){role.textContent=stream?.active?(stream.storageFailed?'保存エラー':!stream.ready?'接続確認中':stream.canEdit()?'入力中':stream.info?.isOwner?'入力停止':'閲覧のみ'):'端末内';role.classList.toggle('is-owner',!!stream?.active&&stream.canEdit());}
+  updateOperationsMenu();if(!stream?.active)return;
+  const pending=stream.hasPending(),attention=stream.storageFailed||!!stream.lastError;
+  const request=stream.info?.isOwner&&stream.info.transfer&&!stream.info.transfer.isRequester;
+  const button=(text,fn)=>{const b=document.createElement('button');b.className='btn btn-sm';b.textContent=text;b.onclick=async()=>{b.disabled=true;try{await fn();}finally{updateStreamControls();}};box.append(b);};
+  if(attention||request){
+    box.hidden=false;const text=document.createElement('span');text.textContent=attention?(stream.storageFailed?'端末に保存できません。記録を出力してください。':pending?'未同期の記録があります。':stream.message):'入力交代の申請が届いています。';box.append(text);
+    if(pending&&!stream.storageFailed)button('再接続',()=>stream.refresh());
+    if(request||pending||stream.storageFailed)button('確認',openOperationsMenu);
   }
   const readonly=!stream.canEdit()||_streamTransition;
   document.querySelectorAll('#app input,#app select').forEach(el=>el.disabled=readonly);
   document.querySelectorAll('#app button').forEach(el=>{
-    if(box.contains(el))return;
-    // 閲覧者にも記録閲覧・画像出力・タブ移動を許可する。
+    if(box.contains(el)||el.hasAttribute('data-stream-control'))return;
     const action=el.getAttribute('onclick')||'';
     const view=/^(switchTab|openScoresheet|closeScoresheet|openSheet|closeModal|saveScoresheet|showScoresheet|navigateSheet|changeSheet|copyOverlayUrl|toggleThrowTimer|resetThrowTimer)/.test(action);
     if(readonly&&!view){el.disabled=true;el.dataset.streamDisabled='1';}

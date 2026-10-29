@@ -8,8 +8,10 @@ const source = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)]
   .map(m => m[1]).filter(Boolean).at(-1).replace(/render\(\);\s*$/, '');
 
 function app(saved, savedTimer) {
-  const values = new Map(saved ? [['molkky_so_v2', saved]] : []);
-  if(savedTimer) values.set('molkky_throw_timer_v1',savedTimer);
+  const values = new Map(saved ? [['molkky_local_v3', saved]] : []);
+  // Logic fixtures represent records saved after the one-time retirement.
+  values.set('molkky_legacy_reset_v1','done');
+  if(savedTimer) values.set('molkky_throw_timer_v3',savedTimer);
   const inputs = {};
   const alerts=[];
   const ctx = vm.createContext({
@@ -91,7 +93,7 @@ test('undo after reload restores a completed set from persisted state', () => {
   a.run('fresh(); S.teams[0].score=49;');
   const before = a.json('state()');
   a.run('applyThrow(0,1)');
-  const b = app(a.values.get('molkky_so_v2'));
+  const b = app(a.values.get('molkky_local_v3'));
   b.run('undoLastThrow()');
   assert.deepEqual(b.json('state()'), before);
 });
@@ -148,7 +150,7 @@ test('switching to uniform keeps names/misses and uses the selected target', () 
 test('captured input survives reload and is used when starting', () => {
   const a = app(); setup(a);
   a.run('captureSetupInputs()');
-  const b = app(a.values.get('molkky_so_v2'));
+  const b = app(a.values.get('molkky_local_v3'));
   assert.equal(b.run('S.settings.gameName'), '決勝');
   assert.equal(b.run('S.teams[1].name'), 'Beta');
   a.run('onStartGame()');
@@ -160,7 +162,7 @@ test('captured input survives reload and is used when starting', () => {
 
 test('clearing the trial name is retained instead of restoring the previous name', () => {
   const a = app(); setup(a);
-  a.values.set('molkky_game_name', '以前の試合');
+  a.values.set('molkky_game_name_v3', '以前の試合');
   a.inputs['game-name'].value = '';
   a.run("setRegulation('match',2)");
   assert.equal(a.run('S.settings.gameName'), '');
@@ -177,7 +179,7 @@ test('input listeners persist edits without needing a settings change', () => {
   a.run('bindEvents()');
   a.inputs['team-name-0'].value = 'New name';
   listeners['team-name-0']();
-  const saved = JSON.parse(a.values.get('molkky_so_v2'));
+  const saved = JSON.parse(a.values.get('molkky_local_v3'));
   assert.equal(saved.teams[0].name, 'New name');
   assert.equal(saved.settings.gameName, '決勝');
 });
@@ -192,7 +194,7 @@ for (const [input, expected] of [[120,100], [175,150], [75,50], [0,50], [-50,50]
     assert.equal(Number(a.inputs['reg-value'].value), expected);
     assert.equal(a.run('S.settings.targetScore'), expected);
     assert.equal(a.run('S.settings.regN'), expected / 50);
-    const saved = JSON.parse(a.values.get('molkky_so_v2'));
+    const saved = JSON.parse(a.values.get('molkky_local_v3'));
     assert.equal(saved.settings.targetScore, expected);
   });
 }
@@ -211,11 +213,11 @@ for (const mode of ['match','first','total']) {
 
 test('game name clear removes the separately saved name and keeps team data', () => {
   const a = app(); setup(a);
-  a.values.set('molkky_game_name','古い試合');
+  a.values.set('molkky_game_name_v3','古い試合');
   a.run("clearSetupField('game')");
-  const b = app(a.values.get('molkky_so_v2'));
+  const b = app(a.values.get('molkky_local_v3'));
   assert.equal(b.run('S.settings.gameName'), '');
-  assert.equal(a.values.get('molkky_game_name'), '');
+  assert.equal(a.values.get('molkky_game_name_v3'), '');
   assert.equal(b.run('S.teams[0].name'), 'Alpha');
   assert.equal(b.run('S.settings.maxMiss'), 4);
 });
@@ -240,7 +242,7 @@ test('reordered identities and colors survive start, reload, rotation and rematc
   a.run('onStartGame()');
   assert.deepEqual(a.json('S.initialOrder'), [1,0]);
   assert.deepEqual(a.json('S.teams.map(t=>t.colorIdx)'), [1,0]);
-  const b = app(a.values.get('molkky_so_v2'));
+  const b = app(a.values.get('molkky_local_v3'));
   b.run('S.teams[0].score=59; applyThrow(0,1); nextSet()');
   assert.deepEqual(b.json('S.teams.map(t=>t.id)'), [0,1]);
   b.run('rematch()');
@@ -326,7 +328,7 @@ test('undo at 3-3 cancels extension, allowing a corrected 4-2 finish', () => {
 
 test('reload at 4-3 retains extension and undo returns to 3-3', () => {
   const a = primeMatch(); playPrime(a,[0,1,0,1,0,1,0]);
-  const b = app(a.values.get('molkky_so_v2'));
+  const b = app(a.values.get('molkky_local_v3'));
   assert.equal(b.run('primeExtended()'), true);
   assert.equal(b.run('getPublicState().primeExtended'), true);
   b.run('undoLastThrow()');
@@ -366,14 +368,14 @@ test('optional rosters rotate active members, snapshot identity per throw, undo 
   assert.equal(a.run('S.teams[1].history[0].memberId'),undefined);
   assert.equal(a.run('currentMember(S.teams[0]).name'),'A');
   a.run('undoLastThrow();undoLastThrow()');assert.equal(a.run('currentMember(S.teams[0]).name'),'C');
-  const b=app(a.values.get('molkky_so_v2'));assert.equal(b.run('currentMember(S.teams[0]).name'),'C');
+  const b=app(a.values.get('molkky_local_v3'));assert.equal(b.run('currentMember(S.teams[0]).name'),'C');
   assert.equal(b.run('typeof correctThrowMember'),'undefined');
 });
 test('roster selection and next-set ordering persist without altering completed sheet',()=>{
   const a=teamRecordApp();play(a,[10,1,10,1,10,1,10,1,10]);
   assert.equal(a.run('S.phase'),'set_finished');
   a.run('moveMember(0,2,0,true); toggleMemberParticipation(0,1,true)');
-  const b=app(a.values.get('molkky_so_v2'));b.run('nextSet()');
+  const b=app(a.values.get('molkky_local_v3'));b.run('nextSet()');
   assert.deepEqual(b.json('S.teams.find(t=>t.id===0).members.map(m=>[m.name,m.active])'),[['C',true],['A',false],['B',false]]);
   assert.equal(b.run('S.setResults[0].scores.find(sc=>sc.teamId===0).members[0].name'),'A');
   assert.equal(b.run('mayEditSet(1)'),false);assert.equal(b.run('mayEditSet(2)'),true);
@@ -502,10 +504,10 @@ test('scoring, undo and set advancement leave manual timer unchanged even on set
 });
 test('running and stopped timer state are restored independently of scoring state',()=>{
   const a=timerApp();a.run('toggleThrowTimer();testTimerNow=5000');
-  const saved=a.values.get('molkky_throw_timer_v1');const b=app(undefined,saved);
+  const saved=a.values.get('molkky_throw_timer_v3');const b=app(undefined,saved);
   b.run('throwTimerNow=()=>9000');assert.equal(b.run('throwTimerText()'),'8.0秒');
   b.run('toggleThrowTimer()');
-  const c=app(undefined,b.values.get('molkky_throw_timer_v1'));
+  const c=app(undefined,b.values.get('molkky_throw_timer_v3'));
   c.run('throwTimerNow=()=>99999');assert.equal(c.run('throwTimerText()'),'8.0秒');
 });
 test('new match, rematch and reset clear previous timing; invalid saved timer recovers',()=>{
@@ -521,18 +523,18 @@ test('new match, rematch and reset clear previous timing; invalid saved timer re
 
 test('paused timing resumes after reload and reset restores the start label',()=>{
   const a=timerApp();a.run('toggleThrowTimer();testTimerNow=5500;toggleThrowTimer()');
-  const b=app(undefined,a.values.get('molkky_throw_timer_v1'));
+  const b=app(undefined,a.values.get('molkky_throw_timer_v3'));
   b.run('let resumedNow=20000;throwTimerNow=()=>resumedNow');
   assert.equal(b.run('throwTimerButtonLabel()'),'再開');
   b.run('toggleThrowTimer();resumedNow=21000');assert.equal(b.run('throwTimerText()'),'5.5秒');
-  const c=app(undefined,b.values.get('molkky_throw_timer_v1'));c.run('throwTimerNow=()=>22000');
+  const c=app(undefined,b.values.get('molkky_throw_timer_v3'));c.run('throwTimerNow=()=>22000');
   assert.equal(c.run('throwTimerText()'),'6.5秒');
   c.run('toggleThrowTimer();resetThrowTimer()');assert.equal(c.run('throwTimerButtonLabel()'),'開始');assert.equal(c.run('throwTimerElapsed()'),0);
 });
 test('even a zero-duration pause shows resume; legacy saved timers remain compatible',()=>{
   const a=timerApp();a.run('toggleThrowTimer();toggleThrowTimer()');
   assert.equal(a.run('throwTimerButtonLabel()'),'再開');
-  const b=app(undefined,a.values.get('molkky_throw_timer_v1'));assert.equal(b.run('throwTimerButtonLabel()'),'再開');
+  const b=app(undefined,a.values.get('molkky_throw_timer_v3'));assert.equal(b.run('throwTimerButtonLabel()'),'再開');
   const legacy=app(undefined,JSON.stringify({elapsedMs:1200,startedAt:null}));assert.equal(legacy.run('throwTimerButtonLabel()'),'再開');
 });
 
@@ -581,7 +583,7 @@ test('eleven extension has no fixed set cap while leaders alternate',()=>{
 test('undoing the 10-10 trigger cancels extension and reload/redo restores it',()=>{
   const a=elevenMatch();reachTenTie(a);a.run('undoLastThrow()');
   assert.equal(a.run('elevenExtended()'),false);assert.deepEqual(a.json('elevenWins()'),[10,9]);
-  a.run('winElevenSet(1)');const b=app(a.values.get('molkky_so_v2'));
+  a.run('winElevenSet(1)');const b=app(a.values.get('molkky_local_v3'));
   assert.equal(b.run('elevenExtended()'),true);assert.equal(b.run('getPublicState().elevenExtended'),true);assert.match(b.run('buildSetProgress()'),/延長中/);
   b.run('rematch()');assert.equal(b.run('elevenExtended()'),false);
 });
@@ -613,7 +615,7 @@ test('first-to-two deciding set defaults to higher total, retains manual overrid
   const a=reachDecider();assert.equal(a.run('decidingSetByTotal()'),true);
   assert.deepEqual(a.json('getOrderDraft().map(i=>S.teams[i].id)'),[1,0]);
   assert.deepEqual(a.json('S.teams.slice().sort((a,b)=>a.id-b.id).map(t=>t.setTotalScore)'),[80,98]);
-  a.run('moveOrder(0,1)');const b=app(a.values.get('molkky_so_v2'));
+  a.run('moveOrder(0,1)');const b=app(a.values.get('molkky_local_v3'));
   assert.deepEqual(b.json('getOrderDraft().map(i=>S.teams[i].id)'),[0,1]);
   const old=b.json('S.setResults');b.run('nextSet()');assert.equal(b.run('S.teams[0].id'),0);assert.equal(b.run('S.currentSet'),3);assert.deepEqual(b.json('S.setResults'),old);
 });
@@ -659,7 +661,7 @@ test('restart current entered set requires confirmation and keeps all past sets 
 });
 test('a reloaded draft retains member/order changes and can be canceled without losing input',()=>{
   const a=teamRecordApp();play(a,[12,3]);a.run('openCurrentOrder();moveCurrentOrder(0,1);moveMember(0,2,0,true)');
-  const b=app(a.values.get('molkky_so_v2'));assert.equal(b.run('editingCurrentOrder()'),true);assert.deepEqual(b.json('S.orderEdit.orderIds'),[1,0]);
+  const b=app(a.values.get('molkky_local_v3'));assert.equal(b.run('editingCurrentOrder()'),true);assert.deepEqual(b.json('S.orderEdit.orderIds'),[1,0]);
   assert.equal(b.run('S.orderEdit.teams[0].nextMembers[0].name'),'C');b.run('cancelCurrentOrder()');assert.equal(b.run('S.teams[0].history[0].points'),12);
 });
 test('uniform restart restores interval start scores rather than zero and removes undo of discarded throws',()=>{
