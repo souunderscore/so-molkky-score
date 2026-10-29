@@ -65,6 +65,11 @@
       void this.flush();
     }
     async flush(){
+      if(this.flushing)return this.flushing;
+      this.flushing=this.drain();
+      try{return await this.flushing;}finally{this.flushing=null;}
+    }
+    async drain(){
       if(this.busy||!this.canEdit()||!this.hasPending())return;this.busy=true;
       try{
         while(this.canEdit()&&this.hasPending()){
@@ -74,11 +79,12 @@
         }
       }catch(e){this.fail(e);}finally{this.busy=false;}
     }
-    async newMatch(state,view){
+    async newMatch(state,view,continueDraft=false){
       if(!this.canEdit())throw Error('INPUT_OWNER_LOST');
       await this.flush();if(this.hasPending()||this.offline||this.busy)throw Error('UNSENT_RECORDS');
       const v={...view};delete v.updatedAt;
-      this.cache.inflight={json:JSON.stringify(state),viewJson:JSON.stringify(v),opId:crypto.randomUUID(),matchId:crypto.randomUUID(),version:this.cache.version??null,ownerEpoch:this.cache.ownerEpoch,operation:'new'};this.persist();
+      const reuse=continueDraft&&this.cache.matchId;
+      this.cache.inflight={json:JSON.stringify(state),viewJson:JSON.stringify(v),opId:crypto.randomUUID(),matchId:reuse||crypto.randomUUID(),version:this.cache.version??null,ownerEpoch:this.cache.ownerEpoch,operation:reuse?'save':'new'};this.persist();
       await this.flush();if(this.hasPending())throw Error('UNSENT_RECORDS');
     }
     async action(operation){

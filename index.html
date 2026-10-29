@@ -2098,6 +2098,7 @@ function captureSetupInputs() {
   if (misses) S.settings.maxMiss = Math.max(1, parseInt(misses.value) || 3);
   enforceRegulationSettings();
   saveState();
+  broadcastState();
 }
 
 function bindEvents() {
@@ -2367,7 +2368,7 @@ async function managedNewMatch(change) {
   try { change();next=JSON.parse(JSON.stringify(S));view=getPublicState(); }
   catch(e){S=JSON.parse(before);_streamTransition=false;render();throw e;}
   S=JSON.parse(before);render();
-  try{await stream.newMatch(next,view);S=next;}
+  try{await stream.newMatch(next,view,JSON.parse(before).phase==='setup'&&next.phase==='playing');S=next;}
   catch{S=next;alert('新しい試合の保存を確認できませんでした。接続・同期を確認してください。');}
   finally{_streamTransition=false;saveState();render();}
 }

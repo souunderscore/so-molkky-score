@@ -17,7 +17,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=r
   const settled=p=>p.waitForFunction(()=>stream.ready&&!stream.busy&&!stream.hasPending());
   try{
     const home=await page(390,false);assert.equal(await home.evaluate(()=>typeof window._fbSet),'undefined');assert.equal(values.has('rooms/'+id),false);
-    const a=await page(390);await a.getByRole('button',{name:'この端末で入力する',exact:true}).click();await a.getByRole('button',{name:'試合開始 🎯',exact:true}).click();await settled(a);assert.equal(score().phase,'playing');
+    const a=await page(390);await a.getByRole('button',{name:'この端末で入力する',exact:true}).click();await a.locator('#team-name-0').fill('Draft A');await settled(a);assert.equal(score().teams[0].name,'Draft A');const draftId=state().current.id;await a.getByRole('button',{name:'試合開始 🎯',exact:true}).click();await settled(a);assert.equal(score().phase,'playing');assert.equal(state().current.id,draftId);assert.equal(Object.keys(state().index||{}).length,0);
     await a.getByRole('button',{name:'8',exact:true}).click();await settled(a);assert.equal(score().teams[0].score,8);
     const b=await page(768);await b.waitForFunction(()=>stream.ready);assert.equal(await b.getByRole('button',{name:'8',exact:true}).isDisabled(),true);
     await b.getByRole('button',{name:'入力交代を申請',exact:true}).click();await a.evaluate(()=>stream.refresh());await a.getByRole('button',{name:'交代を承認する',exact:true}).click();await b.evaluate(()=>stream.refresh());await b.waitForFunction(()=>stream.canEdit());await b.getByRole('button',{name:'4',exact:true}).click();await settled(b);assert.equal(score().teams[1].score,4);
