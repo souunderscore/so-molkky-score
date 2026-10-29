@@ -42,8 +42,13 @@
     }
     async refresh(first=false){
       if(this.refreshing||this.busy||this.storageFailed)return;this.refreshing=true;
+      const startedVersion=this.cache.version,startedJson=this.cache.lastJson;
       try{
-        let info=await this.api('inspect');this.offline=false;
+        let info=await this.api('inspect');
+        // A poll started before a local save may arrive after its confirmation.
+        // Do not restore that older snapshot or roll back the confirmed version.
+        if(this.busy||this.cache.version!==startedVersion||this.cache.lastJson!==startedJson)return;
+        this.offline=false;
         if(this.cache.inflight&&info.current?.opId===this.cache.inflight.opId){this.cache.version=info.current.version;this.cache.matchId=info.current.id;this.cache.inflight=null;this.persist();}
         if(this.hasPending()&&((this.cache.generation!==info.generation)||!info.isOwner||this.cache.ownerEpoch!==info.ownerEpoch||(this.cache.version??null)!==(info.current?.version??null))){
           this.info=info;this.locked=true;this.ready=true;this.message='入力権限または試合が変わっています。未送信の記録は端末に残しました。';this.changed();return;
