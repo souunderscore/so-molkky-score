@@ -220,9 +220,11 @@ input[type=text],input[type=number],select{font-size:16px;min-height:44px;}
 /* Compact header and occasional actions in a bottom sheet. */
 .compact-header{justify-content:space-between;margin-bottom:6px;}
 .heading-copy{min-width:0;}.heading-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
-.input-role{font-size:11px;font-weight:500;color:var(--c-muted);white-space:nowrap;}
-.input-role.is-owner{color:#218057;}
-.settings-toggle{flex:0 0 44px;width:44px;height:44px;border:1px solid var(--c-border);background:var(--c-surface);border-radius:50%;color:var(--c-muted);font:27px/1 system-ui;display:grid;place-items:center;cursor:pointer;}
+.input-role{display:inline-flex;align-items:center;justify-content:center;gap:5px;box-sizing:border-box;min-height:22px;padding:3px 9px;border:1px solid var(--c-border);border-radius:999px;background:#edf1f5;color:var(--c-muted);font-size:11px;line-height:1.2;font-weight:600;white-space:nowrap;}
+.input-role::before{content:'';flex:0 0 5px;width:5px;height:5px;border-radius:50%;background:currentColor;}
+.input-role.is-owner{background:#e9f5ee;border-color:#cfe8d9;color:#28784e;}
+.settings-toggle{flex:0 0 44px;width:44px;height:44px;padding:0;border:1px solid var(--c-border);background:var(--c-surface);border-radius:50%;color:var(--c-muted);display:grid;place-items:center;cursor:pointer;}
+.settings-toggle svg{display:block;width:22px;height:22px;margin:0;}
 .stream-notice{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;margin:0 0 10px;border-radius:9px;background:#fff7ed;color:#9a4b0c;font-size:12px;}
 .stream-notice[hidden]{display:none;}.stream-notice>span{flex:1;min-width:150px;}.stream-notice .btn{min-height:36px;}
 .operations-sheet{box-sizing:border-box;border:0;border-radius:20px 20px 0 0;margin:auto auto 0;padding:0;width:100%;max-width:520px;max-height:80vh;max-height:80dvh;overflow:auto;color:var(--c-text);background:var(--c-surface);box-shadow:0 -10px 40px #17233222;}
@@ -861,7 +863,35 @@ function buildApp() {
         <div class="heading-title"><h1>SÖスコア</h1><span id="input-role" class="input-role"></span></div>
         <p>モルック スコア管理 &amp; ライブ配信</p>
       </div>
-      <button class="settings-toggle" id="operations-toggle" data-stream-control aria-label="設定と操作" aria-haspopup="dialog" aria-controls="operations-menu" aria-expanded="${_operationsOpen}" onclick="openOperationsMenu()"><span aria-hidden="true">⚙︎</span></button>
+      <!-- Lucide settings icon. ISC License
+      
+      Copyright (c) 2026 Lucide Icons and Contributors
+      
+      Permission to use, copy, modify, and/or distribute this software for any
+      purpose with or without fee is hereby granted, provided that the above
+      copyright notice and this permission notice appear in all copies.
+      
+      THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+      WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+      MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+      ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+      WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+      ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+      OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. -->
+      <button class="settings-toggle" id="operations-toggle" data-stream-control aria-label="設定と操作" aria-haspopup="dialog" aria-controls="operations-menu" aria-expanded="${_operationsOpen}" onclick="openOperationsMenu()"><svg aria-hidden="true" focusable="false"
+        xmlns="http://www.w3.org/2000/svg"
+        width="22"
+        height="22"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" />
+        <circle cx="12" cy="12" r="3" />
+      </svg></button>
     </div>
     <div id="stream-status" class="stream-notice" role="status" hidden></div>
     <div class="tabs">
