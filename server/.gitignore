@@ -1,0 +1,5 @@
+.private/
+node_modules/
+.dev.vars*
+.wrangler/
+preview-assets.mjs

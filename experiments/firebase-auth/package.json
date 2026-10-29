@@ -1,0 +1,7 @@
+{
+  "name": "molkky-firebase-auth-candidate",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test auth.test.mjs", "test:emulator": "node --test emulator.test.mjs" },
+  "devDependencies": { "firebase-tools": "15.34.1" }
+}

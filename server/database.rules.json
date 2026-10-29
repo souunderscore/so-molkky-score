@@ -1,0 +1,37 @@
+{
+  "rules": {
+    "game": {
+      ".read": true,
+      ".write": true
+    },
+    "stream_v1": {
+      "control": {
+        ".read": "auth != null && auth.uid === '8Noq04pxAiVZfbKKcLUGlovabKG2'",
+        ".write": "auth != null && auth.uid === '8Noq04pxAiVZfbKKcLUGlovabKG2'",
+        "selectedLink": {
+          ".read": true
+        },
+        "hidden": {
+          ".read": true
+        }
+      },
+      "rooms": {
+        "$id": {
+          ".read": "auth != null && auth.uid === '8Noq04pxAiVZfbKKcLUGlovabKG2'",
+          ".write": "auth != null && auth.uid === '8Noq04pxAiVZfbKKcLUGlovabKG2' && root.child('stream_v1/control/links').child($id).child('enabled').val() === true && root.child('stream_v1/control/links').child($id).child('discarded').val() === false && newData.child('generation').val() === root.child('stream_v1/control/links').child($id).child('generation').val()",
+          "current": {
+            "viewJson": {
+              ".read": "root.child('stream_v1/control/selectedLink').val() === $id"
+            }
+          }
+        }
+      },
+      "archives": {
+        "$id": {
+          ".read": "auth != null && auth.uid === '8Noq04pxAiVZfbKKcLUGlovabKG2'",
+          ".write": "auth != null && auth.uid === '8Noq04pxAiVZfbKKcLUGlovabKG2'"
+        }
+      }
+    }
+  }
+}

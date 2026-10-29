@@ -559,35 +559,22 @@ function esc(s) {
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ─── Firebase Realtime Database リアルタイム同期 (compat版) ───
-const firebaseConfig = {
-  databaseURL: 'https://so-molkky-score-default-rtdb.asia-southeast1.firebasedatabase.app/'
-};
+// 配信対象の公開フィールドと、選択した試合の表示だけを購読する。
+const firebaseConfig = {databaseURL:'https://so-molkky-score-default-rtdb.asia-southeast1.firebasedatabase.app/'};
 firebase.initializeApp(firebaseConfig);
-firebase.database().ref('game').on('value', (snapshot) => {
-  const data = snapshot.val();
-  if (data) {
-    const s = JSON.stringify(data);
-    if (s !== lastStateStr) { lastStateStr = s; render(data); }
-  }
+const db=firebase.database();
+let displayHidden=false,selected=null,viewRef=null,lastView=null;
+function paint(){if(displayHidden){document.getElementById('overlay').replaceChildren();return;}render(lastView);}
+db.ref('stream_v1/control/hidden').on('value',snapshot=>{displayHidden=snapshot.val()===true;paint();});
+db.ref('stream_v1/control/selectedLink').on('value',snapshot=>{
+  const id=snapshot.val();if(id===selected)return;
+  if(viewRef)viewRef.off();selected=id;lastView=null;paint();
+  if(!id)return;
+  const expected=id;viewRef=db.ref('stream_v1/rooms/'+id+'/current/viewJson');
+  viewRef.on('value',snapshot=>{if(selected!==expected)return;const raw=snapshot.val();try{lastView=raw?JSON.parse(raw):null;paint();}catch{}},()=>{/* 通信断では直前の表示を維持 */});
 });
-
-// フォールバック: BroadcastChannel（同一デバイス内の即時同期）
-try {
-  const bc = new BroadcastChannel('molkky_live');
-  bc.onmessage = (e) => {
-    try {
-      const msg = JSON.parse(e.data);
-      if (msg.type === 'state') { lastStateStr = JSON.stringify(msg.data); render(msg.data); }
-    } catch(_) {}
-  };
-} catch(_) {}
-
-// 初期表示: localStorageから読み込み（Firebase接続前の表示用）
-const init = getState();
-if (init) { lastStateStr = JSON.stringify(init); render(init); } else { render(null); }
+// 従来のgame、BroadcastChannel、localStorageから配信を更新しない。
+render(null);
 </script>
 </body>
 </html>
-
-
