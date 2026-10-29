@@ -171,6 +171,11 @@ input[type=text],input[type=number],select{font-size:16px;min-height:44px;}
 .member-row.inactive{opacity:.55;}
 .member-editor{padding:8px 0 14px;border-bottom:1px solid var(--c-border);margin-bottom:10px;}
 .member-heading{font-weight:600;font-size:12px;overflow-wrap:anywhere;}
+.member-settings>summary{display:flex;align-items:center;gap:6px;width:max-content;max-width:100%;min-height:44px;list-style:none;cursor:pointer;color:var(--c-muted);font-size:13px;}
+.member-settings>summary::-webkit-details-marker{display:none;}
+.member-settings[open]>summary{color:var(--c-text);}
+.member-chevron{display:inline-block;line-height:1;}
+.member-settings[open] .member-chevron{transform:rotate(180deg);}
 .member-note{font-size:12px;color:var(--c-muted);line-height:1.6;margin:8px 0;overflow-wrap:anywhere;}
 .sheet-scroll{overflow-x:auto;max-width:100%;margin:10px 0;}
 .sheet-table{border-collapse:collapse;width:max-content;min-width:100%;font-size:13px;}
@@ -1514,6 +1519,7 @@ let _sheetOpen = false;
 let _sheetHistoryIdx = -1;
 let _sheetIndex = 0;
 let _scoreEdit = null;
+const _memberSettingsOpen = new Set();
 function activeMembers(team) { return (team.members || []).filter(m => m.active !== false); }
 function currentMember(team) {
   const list = activeMembers(team);
@@ -1529,9 +1535,14 @@ function buildMemberEditor(teamIdx, next = false) {
     <button type="button" class="btn btn-xs" onclick="moveMember(${teamIdx},${i},${i+1},${next})" ${i===members.length-1?'disabled':''} aria-label="メンバーを下へ">↓</button>
     ${next ? '' : `<button type="button" class="btn btn-xs" onclick="removeMember(${teamIdx},${i})" aria-label="メンバーを削除">×</button>`}
   </div>`).join('');
-  return `<div class="member-editor"><div class="member-heading">${next ? escHtml(team.name) : 'メンバー・投擲順（任意）'}</div>${rows}
-    ${next ? (members.length ? '<div class="member-note">チェックしたメンバーが上から順に投擲します。</div>' : '<div class="member-note">メンバー未登録</div>') : `<button type="button" class="btn btn-sm" onclick="addMember(${teamIdx})">メンバーを追加</button><div class="member-note">チェックしたメンバーが参加します。未登録でも利用できます。</div>`}</div>`;
+  if(next)return `<div class="member-editor"><div class="member-heading">${escHtml(team.name)}</div>${rows}${members.length ? '<div class="member-note">チェックしたメンバーが上から順に投擲します。</div>' : '<div class="member-note">メンバー未登録</div>'}</div>`;
+  return `<details class="member-editor member-settings" ${_memberSettingsOpen.has(team.id)?'open':''} ontoggle="rememberMemberSettings(${teamIdx},this.open)">
+    <summary>メンバー設定<span class="member-chevron" aria-hidden="true">⌄</span></summary>
+    ${rows}<button type="button" class="btn btn-sm" onclick="addMember(${teamIdx})">メンバーを追加</button>
+    <div class="member-note">チェックしたメンバーが上から順に投擲します。未登録でも利用できます。</div>
+  </details>`;
 }
+function rememberMemberSettings(teamIdx,open){const team=S.teams[teamIdx];if(team){if(open)_memberSettingsOpen.add(team.id);else _memberSettingsOpen.delete(team.id);}}
 function memberDraft(teamIdx, next) {
   const t = memberEditorTeam(teamIdx,next);
   if (next && !t.nextMembers) t.nextMembers = cloneRecord(t.members || []);
