@@ -39,6 +39,28 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=r
     holdInspect.add(b);await b.evaluate(()=>{window.staleRefresh=stream.refresh();});for(let i=0;i<100&&!releaseInspect.has(b);i++)await new Promise(resolve=>setTimeout(resolve,20));assert.ok(releaseInspect.has(b));await b.evaluate(()=>{S.settings.gameName='latest draft';saveState();render();});await settled(b);const latestVersion=state().current.version;releaseInspect.get(b)();await b.evaluate(()=>window.staleRefresh);assert.equal(await b.evaluate(()=>S.settings.gameName),'latest draft');assert.equal(await b.evaluate(()=>stream.cache.version),latestVersion);
     for(const p of [home,a,b])assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
     await b.getByRole('button',{name:'設定と操作',exact:true}).click();await b.screenshot({path:'/tmp/molkky-compact-menu.png'});assert.equal(await b.getByRole('link',{name:'管理者メニュー',exact:true}).isVisible(),true);assert.equal(await b.getByRole('button',{name:'この端末の従来の試合を引き継ぐ',exact:true}).count(),0);await b.keyboard.press('Escape');await b.waitForFunction(()=>!document.getElementById('operations-menu').open&&document.getElementById('operations-toggle').getAttribute('aria-expanded')==='false');assert.equal(await b.getByRole('button',{name:'設定と操作',exact:true}).getAttribute('aria-expanded'),'false');
+    await b.evaluate(()=>{S.teams[0].members=[{id:0,name:'Member A',active:true}];S.settings.regMode='match';S.settings.regN=2;saveState();render();});await settled(b);
+    await b.getByRole('button',{name:'試合開始 🎯',exact:true}).click();await settled(b);
+    for(const points of [12,1,12,1,12,1,12,1,2]){await b.getByRole('button',{name:String(points),exact:true}).click();await settled(b);}
+    assert.equal(await b.evaluate(()=>S.phase),'set_finished');
+    for(const width of [320,390,768]){
+      await b.setViewportSize({width,height:844});
+      const geometry=await b.locator('.next-order-row').evaluateAll(rows=>rows.map(row=>{const r=row.getBoundingClientRect(),buttons=[...row.querySelectorAll('button')].map(b=>b.getBoundingClientRect());return{width:r.width,buttons:buttons.map(b=>({width:b.width,height:b.height,inside:b.left>=r.left&&b.right<=r.right}))};}));
+      assert.equal(geometry.length,2);for(const row of geometry)for(const button of row.buttons){assert.ok(button.width>=44&&button.height>=44);assert.equal(button.inside,true);}
+      assert.equal(await b.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+      await b.screenshot({path:'/tmp/molkky-next-order-'+width+'.png',fullPage:true});
+    }
+    const draftBefore=await b.evaluate(()=>getOrderDraft().map(i=>S.teams[i].id));await b.locator('.next-order-list').getByRole('button',{name:'1番目のチームを下へ',exact:true}).click();await settled(b);assert.deepEqual(await b.evaluate(()=>getOrderDraft().map(i=>S.teams[i].id)),[...draftBefore].reverse());
+    await b.evaluate(()=>endGame(S.teams[0].id));await settled(b);assert.equal(await b.evaluate(()=>S.phase),'finished');
+    await b.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>true});Object.defineProperty(navigator,'share',{configurable:true,value:async data=>{const f=data.files[0];window.sharedSheet={name:f.name,type:f.type,size:f.size,signature:[...new Uint8Array(await f.arrayBuffer()).slice(0,8)]};}});});
+    await b.getByRole('button',{name:'全セットを画像で保存',exact:true}).click();await b.waitForFunction(()=>window.sharedSheet?.size>0);const image=await b.evaluate(()=>window.sharedSheet);assert.equal(image.type,'image/png');assert.deepEqual(image.signature,[137,80,78,71,13,10,26,10]);assert.equal(await b.evaluate(()=>S.phase),'finished');
+    await b.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});});const downloadEvent=b.waitForEvent('download');await b.getByRole('button',{name:'全セットを画像で保存',exact:true}).click();assert.match((await downloadEvent).suggestedFilename(),/^scoresheet_.*\.png$/);
+    const carry=await b.evaluate(()=>({settings:S.settings,teams:S.initialOrder.map(id=>{const t=S.teams.find(t=>t.id===id);return{name:t.name,members:t.members||[]}}),history:S.history}));
+    await b.getByRole('button',{name:'新しい試合',exact:true}).click();await settled(b);assert.equal(await b.evaluate(()=>S.phase),'setup');assert.deepEqual(await b.evaluate(()=>S.settings),carry.settings);assert.deepEqual(await b.evaluate(()=>S.teams.map(t=>({name:t.name,members:t.members||[]}))),carry.teams);
+    await b.reload();await b.waitForFunction(()=>stream.canEdit());assert.deepEqual(await b.evaluate(()=>S.history),carry.history);
+    await menuAction(b,'試合設定を初期化');await b.locator('#modal-confirm').waitFor({state:'visible'});await b.locator('#modal-confirm').getByRole('button',{name:'キャンセル',exact:true}).click();assert.deepEqual(await b.evaluate(()=>S.settings),carry.settings);
+    await menuAction(b,'試合設定を初期化');await b.locator('#modal-confirm-ok').click();await settled(b);assert.equal(await b.locator('#team-name-0').inputValue(),'');assert.equal(await b.evaluate(()=>S.settings.gameName),'');assert.equal(await b.evaluate(()=>S.teams.every(t=>!(t.members||[]).length)),true);assert.deepEqual(await b.evaluate(()=>S.history),carry.history);
+    console.log('result PNG share/download, settings carry-over, setup-only reset, next-order controls at 320/390/768px passed');
     assert.deepEqual(errors,[]);console.log('score UI passed: persistent home, explicit claim, viewer, normal/forced handoff, offline reload, stale outbox retention, new match archive, 390/768px');
   }finally{for(const c of contexts)await c.close();await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1)});

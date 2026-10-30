@@ -675,3 +675,20 @@ test('empty participation in a correction draft cannot overwrite the live set',(
   const a=teamRecordApp();play(a,[12,3]);a.run('openCurrentOrder();S.orderEdit.teams[0].members.forEach(m=>m.active=false);applyCurrentOrder()');
   assert.equal(a.run('editingCurrentOrder()'),true);assert.equal(a.run('S.teams[0].history[0].points'),12);assert.ok(a.alerts.length>0);
 });
+
+test('new match preserves setup and roster identities while clearing scores and retaining history',()=>{
+  const a=teamRecordApp('first',3);
+  a.run("S.settings.gameName='Carry over';S.initialOrder=S.teams.map(t=>t.id);S.history=[{id:1,gameName:'Previous'}];S.teams.reverse();S.teams.forEach(t=>{t.score=30;t.setWins=1;t.setTotalScore=50;});");
+  const settings=a.json('S.settings'),rosters=a.json('S.initialOrder.map(id=>{const t=S.teams.find(t=>t.id===id);return {id:t.id,name:t.name,members:t.members||[]}})');
+  a.run('resetGame()');assert.equal(a.run('S.phase'),'setup');assert.deepEqual(a.json('S.settings'),settings);
+  assert.deepEqual(a.json('S.teams.map(t=>({id:t.id,name:t.name,members:t.members||[]}))'),rosters);
+  assert.equal(a.run('S.teams.every(t=>t.score===0&&t.setWins===0&&t.setTotalScore===0&&t.history.length===0)'),true);assert.equal(a.run('S.history.length'),1);
+  const b=app(a.values.get('molkky_local_v3'));assert.deepEqual(b.json('S.settings'),settings);assert.deepEqual(b.json('S.teams.map(t=>({id:t.id,name:t.name,members:t.members||[]}))'),rosters);
+});
+test('setup initialization clears only current setup; saved match history survives reload',()=>{
+  const a=teamRecordApp();a.run("S.history=[{id:1,gameName:'Previous'}];resetGame();S.settings.regMode='eleven';S.settings.regN=11;resetSetupSettings()");
+  assert.deepEqual(a.json('S.settings'),{teamCount:2,targetScore:50,maxMiss:3,gameName:'',regMode:'match',regN:2});
+  assert.equal(a.run("S.teams.every(t=>t.name===''&&!(t.members||[]).length)"),true);assert.equal(a.run('S.history[0].gameName'),'Previous');
+  const b=app(a.values.get('molkky_local_v3'));assert.equal(b.run('S.history.length'),1);assert.equal(b.run('S.settings.regMode'),'match');
+  b.run("S.phase='playing';S.settings.gameName='Protected';resetSetupSettings()");assert.equal(b.run('S.settings.gameName'),'Protected');
+});

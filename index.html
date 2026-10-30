@@ -205,6 +205,12 @@ input[type=text],input[type=number],select{font-size:16px;min-height:44px;}
 .order-team-name{flex:1;min-width:0;font-weight:700;overflow-wrap:anywhere;}
 .order-team-name small{display:block;font-size:11px;font-weight:500;color:var(--c-muted);margin-top:3px;}
 .current-order-row .btn{min-width:44px;min-height:44px;}
+.next-order-list{border:1px solid var(--c-border);border-radius:10px;overflow:hidden;}
+.next-order-row{display:grid;grid-template-columns:28px minmax(0,1fr) 96px;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--c-border);}
+.next-order-row:last-child{border-bottom:0;}
+.next-order-position{width:24px;height:24px;border-radius:50%;color:#fff;font-size:12px;font-weight:800;display:grid;place-items:center;}
+.next-order-actions{display:flex;gap:8px;}
+.next-order-actions .btn{width:44px;min-width:44px;height:44px;padding:0;font-size:20px;line-height:1;}
 .match-total{font-size:12px;font-weight:700;color:var(--c-muted);white-space:nowrap;margin-left:auto;}
 
 /* ─── レスポンシブ ─── */
@@ -729,11 +735,16 @@ function startGame() {
 
 function resetGame() {
   if (stream?.active && !_streamTransition) return managedNewMatch(() => resetGame());
+  captureSetupInputs();
+  const previousTeams=S.initialOrder?S.initialOrder.map(id=>S.teams.find(t=>t.id===id)).filter(Boolean):S.teams;
+  const names=previousTeams.map(t=>t.name);
+  const teams=initTeams(names).map((t,i)=>({...t,id:previousTeams[i].id,colorIdx:previousTeams[i].colorIdx??previousTeams[i].id,members:cloneRecord(previousTeams[i].members||[])}));
   clearThrowTimer();
   S.orderEdit=null;S.nextTeamOrderDraft=null;
   _sheetOpen = false; _scoreEdit = null; S.editedSet = false; S.sheetSet = null; S.archivedRecordId = null;
   S.phase = 'setup';
-  S.teams = [];
+  S.teams = teams;
+  _memberSettingsOpen.clear();
   S.initialOrder = null;
   _orderDraft = null;
   S.currentTeamIdx = 0;
@@ -748,6 +759,18 @@ function resetGame() {
   saveState();
   broadcastState();
   render();
+}
+
+function resetSetupSettings(){
+  if(S.phase!=='setup'||(stream?.active&&!stream.canEdit()))return;
+  S.settings={teamCount:2,targetScore:50,maxMiss:3,gameName:'',regMode:'match',regN:2};
+  S.teams=[];S.initialOrder=null;_orderDraft=null;_memberSettingsOpen.clear();
+  ensureSetupTeams();saveState();render();
+}
+function confirmResetSettings(){
+  if(S.phase!=='setup')return;
+  closeOperationsMenu();
+  showConfirm('チーム名・メンバー・試合設定を初期値に戻します。\n過去の試合履歴は残ります。初期化しますか？',resetSetupSettings);
 }
 
 function rematch() {
@@ -775,13 +798,12 @@ function rematch() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// リンク単位の同期（通常ホームは端末内のみ）
+// ホーム・発行リンク共通の同期
 // ═══════════════════════════════════════════════════════════════
 
 function broadcastState() {
   if (_streamTransition) return;
   if (stream?.active) stream.publish(S, getPublicState());
-  // 通常ホームの記録はこの端末だけに保存する。
 }
 
 function getPublicState() {
@@ -1101,12 +1123,12 @@ function buildSetFinished() {
     const color = COLORS[(t.colorIdx !== undefined ? t.colorIdx : teamIdx) % COLORS.length];
     const isFirst = pos === 0;
     const isLast = pos === draft.length - 1;
-    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border-bottom:1px solid #f0f0f0;">
-      <div style="width:24px;height:24px;border-radius:50%;background:${color};color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${pos+1}</div>
+    return `<div class="next-order-row">
+      <div class="next-order-position" style="background:${color};">${pos+1}</div>
       <div class="order-team-name" style="color:${color};">${escHtml(t.name)}<small>${totalScoreLabel(t)}</small></div>
-      <div style="display:flex;gap:4px;">
-        <button class="btn btn-sm btn-gray" onclick="moveOrder(${pos},${pos-1})" ${isFirst?'disabled':''} style="padding:4px 10px;font-size:16px;line-height:1;">↑</button>
-        <button class="btn btn-sm btn-gray" onclick="moveOrder(${pos},${pos+1})" ${isLast?'disabled':''} style="padding:4px 10px;font-size:16px;line-height:1;">↓</button>
+      <div class="next-order-actions">
+        <button class="btn btn-gray" onclick="moveOrder(${pos},${pos-1})" ${isFirst?'disabled':''} aria-label="${pos+1}番目のチームを上へ">↑</button>
+        <button class="btn btn-gray" onclick="moveOrder(${pos},${pos+1})" ${isLast?'disabled':''} aria-label="${pos+1}番目のチームを下へ">↓</button>
       </div>
     </div>`;
   }).join('');
@@ -1133,11 +1155,11 @@ function buildSetFinished() {
       <div class="card-header">
         <span class="card-title">🔀 セット${nextSetNum}の投擲順</span>
       </div>
-      ${decidingSetByTotal()?'<p class="member-note" style="padding:0 16px;">全チームがリーチのため合計点順を初期値にしています。同点は通常の循環順です。上下ボタンで変更できます。</p>':''}
-      <div style="border:1.5px solid #e5e7eb;border-radius:10px;overflow:hidden;margin:0 16px 14px;">
-        ${orderRows}
+      <div class="card-body">
+        ${decidingSetByTotal()?'<p class="member-note">全チームがリーチのため合計点順を初期値にしています。同点は通常の循環順です。上下ボタンで変更できます。</p>':''}
+        <div class="next-order-list">${orderRows}</div>
       </div>
-      <div class="card-body"><label>チーム内の参加者・投擲順</label>${S.teams.map((t,i)=>buildMemberEditor(i,true)).join('')}</div>
+      ${S.teams.some(t=>(t.nextMembers||t.members||[]).length)?`<div class="card-body"><label>チーム内の参加者・投擲順</label>${S.teams.map((t,i)=>(t.nextMembers||t.members||[]).length?buildMemberEditor(i,true):'').join('')}</div>`:''}
       <div class="card-body" style="padding-top:0;">
         <button class="btn btn-primary btn-block" onclick="nextSet()">セット${nextSetNum}へ進む ▶</button>
         <button class="btn btn-gray btn-block" onclick="onUndo()" style="margin-top:8px;">直前の投擲を取り消す</button>
@@ -1431,6 +1453,8 @@ function buildFinished() {
       </div>
     </div>
     ${sheetActionButton()}
+    <button class="btn btn-primary btn-block" onclick="saveScoresheet()">全セットを画像で保存</button>
+    <p id="sheet-save-status" role="status" class="member-note"></p>
     ${setAnalysis}
     <div style="display:flex;gap:8px;margin-bottom:12px;">
       <button class="btn btn-primary" style="flex:1;" onclick="rematch()">同じメンバーで再戦</button>
@@ -1811,9 +1835,10 @@ function downloadSheetBlob(blob,fileName) {
 }
 async function saveScoresheet(historyIdx=-1) {
   const status=document.getElementById('sheet-save-status');
+  let canvas;
   try {
     const game=historyIdx<0?S:S.history[historyIdx];
-    const canvas=createScoresheetCanvas(game);
+    canvas=createScoresheetCanvas(game);
     const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('画像の生成に失敗しました。')),'image/png'));
     const date=new Date(game.startedAt||Date.now());
     const fileName=`scoresheet_${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}.png`;
@@ -1822,8 +1847,8 @@ async function saveScoresheet(historyIdx=-1) {
       try {await navigator.share({files:[file],title:'スコアシート'});if(status)status.textContent='共有メニューへ画像を渡しました。';}
       catch(e) {if(e.name==='AbortError')return;downloadSheetBlob(blob,fileName);if(status)status.textContent='画像をダウンロードしました。';}
     } else {downloadSheetBlob(blob,fileName);if(status)status.textContent='画像をダウンロードしました。';}
-    canvas.width=0;canvas.height=0;
   } catch(e) {if(status)status.textContent=e.message;else alert(e.message);}
+  finally{if(canvas){canvas.width=0;canvas.height=0;}}
 }
 
 // 手動投擲タイマー。得点入力とは独立し、再描画・再読み込み後も経過を維持する。
@@ -2415,6 +2440,7 @@ function updateOperationsMenu() {
       if(stream.locked)button('サーバー保存済みの記録に戻る','restore',async()=>{if(confirm('未反映の記録を先に出力して保管してください。この端末の未送信分を取り除き、サーバー保存済みの記録を表示しますか？'))await stream.discardLocal();});
     }
   }
+  if(S.phase==='setup'&&(!stream?.active||stream.canEdit()))button('試合設定を初期化','reset-settings',confirmResetSettings);
   const admin=document.createElement('a');admin.id='operation-admin';admin.className='operations-action primary';admin.href='https://so-molkky-score-api.sou-underscore.workers.dev/';admin.textContent='管理者メニュー';menu.append(admin);
   menu.insertAdjacentHTML('beforeend',buildOverlayInfo());
   if(focused&&document.getElementById('operations-menu')?.open)document.getElementById(focused)?.focus();
