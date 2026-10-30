@@ -51,10 +51,22 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=r
       await b.screenshot({path:'/tmp/molkky-next-order-'+width+'.png',fullPage:true});
     }
     const draftBefore=await b.evaluate(()=>getOrderDraft().map(i=>S.teams[i].id));await b.locator('.next-order-list').getByRole('button',{name:'1番目のチームを下へ',exact:true}).click();await settled(b);assert.deepEqual(await b.evaluate(()=>getOrderDraft().map(i=>S.teams[i].id)),[...draftBefore].reverse());
-    await b.evaluate(()=>endGame(S.teams[0].id));await settled(b);assert.equal(await b.evaluate(()=>S.phase),'finished');
-    await b.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>true});Object.defineProperty(navigator,'share',{configurable:true,value:async data=>{const f=data.files[0];window.sharedSheet={name:f.name,type:f.type,size:f.size,signature:[...new Uint8Array(await f.arrayBuffer()).slice(0,8)]};}});});
-    await b.getByRole('button',{name:'全セットを画像で保存',exact:true}).click();await b.waitForFunction(()=>window.sharedSheet?.size>0);const image=await b.evaluate(()=>window.sharedSheet);assert.equal(image.type,'image/png');assert.deepEqual(image.signature,[137,80,78,71,13,10,26,10]);assert.equal(await b.evaluate(()=>S.phase),'finished');
-    await b.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});});const downloadEvent=b.waitForEvent('download');await b.getByRole('button',{name:'全セットを画像で保存',exact:true}).click();assert.match((await downloadEvent).suggestedFilename(),/^scoresheet_.*\.png$/);
+    await b.evaluate(()=>nextSet());await settled(b);
+    for(const points of [12,1,12,1,12,1,12,1,2]){await b.getByRole('button',{name:String(points),exact:true}).click();await settled(b);}
+    assert.equal(await b.evaluate(()=>S.phase),'finished');
+    await b.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>true});Object.defineProperty(navigator,'share',{configurable:true,value:async data=>{window.sharedSheets=await Promise.all(data.files.map(async f=>({name:f.name,type:f.type,size:f.size,signature:[...new Uint8Array(await f.arrayBuffer()).slice(0,8)]})));}});});
+    await b.getByRole('button',{name:'全セットを画像で保存',exact:true}).click();await b.waitForFunction(()=>window.sharedSheets?.length===2);
+    const images=await b.evaluate(()=>window.sharedSheets);for(const [i,image] of images.entries()){assert.equal(image.type,'image/png');assert.ok(image.size>0);assert.deepEqual(image.signature,[137,80,78,71,13,10,26,10]);assert.ok(image.name.endsWith(`_set-${i+1}.png`));}assert.equal(await b.evaluate(()=>S.phase),'finished');
+    await b.evaluate(()=>{Object.defineProperty(navigator,'share',{configurable:true,value:async()=>{throw new DOMException('cancelled','AbortError')}});});
+    await b.getByRole('button',{name:'全セットを画像で保存',exact:true}).click();await b.getByRole('button',{name:'画像をまとめて共有',exact:true}).waitFor();
+    assert.equal(await b.getByRole('button',{name:'セット1を保存',exact:true}).isVisible(),true);
+    await b.evaluate(()=>{Object.defineProperty(navigator,'share',{configurable:true,value:async data=>{window.retryCount=data.files.length;}});});await b.getByRole('button',{name:'画像をまとめて共有',exact:true}).click();assert.equal(await b.evaluate(()=>window.retryCount),2);
+    await b.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});});
+    await b.getByRole('button',{name:'全セットを画像で保存',exact:true}).click();await b.getByRole('button',{name:'セット2を保存',exact:true}).waitFor();
+    for(const n of [1,2]){const downloadEvent=b.waitForEvent('download');await b.getByRole('button',{name:`セット${n}を保存`,exact:true}).click();assert.ok((await downloadEvent).suggestedFilename().endsWith(`_set-${n}.png`));}
+    await b.evaluate(()=>{_sheetOpen=true;_sheetHistoryIdx=-1;render();});
+    await b.getByRole('button',{name:'全セットを画像で保存・共有',exact:true}).click();await b.getByRole('button',{name:'セット2を保存',exact:true}).waitFor();
+    await b.evaluate(()=>{_sheetOpen=false;render();});
     const carry=await b.evaluate(()=>({settings:S.settings,teams:S.initialOrder.map(id=>{const t=S.teams.find(t=>t.id===id);return{name:t.name,members:t.members||[]}}),history:S.history}));
     await b.getByRole('button',{name:'新しい試合',exact:true}).click();await settled(b);assert.equal(await b.evaluate(()=>S.phase),'setup');assert.deepEqual(await b.evaluate(()=>S.settings),carry.settings);assert.deepEqual(await b.evaluate(()=>S.teams.map(t=>({name:t.name,members:t.members||[]}))),carry.teams);
     await b.reload();await b.waitForFunction(()=>stream.canEdit());assert.deepEqual(await b.evaluate(()=>S.history),carry.history);

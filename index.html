@@ -1788,8 +1788,8 @@ function undoCorrectedSet() {
   events.pop(); applyReplayedSet(replayCurrentSet(events));return true;
 }
 // HTML表示と同じ列構成でキャンバスへ描画。横スクロール外の列・セットも含める。
-function createScoresheetCanvas(g) {
-  const sets=getSheetSets(g); if(!sets.length)throw Error('投擲記録がありません。');
+function createScoresheetCanvas(g,sets=getSheetSets(g)) {
+  if(!sets.length)throw Error('投擲記録がありません。');
   const rowH=32, titleH=34, pad=16, gap=14, colW=42;
   const models=sets.map(sr=>{
     const columns=sr.scores.map(sc=>sheetColumns(sc));
@@ -1833,22 +1833,46 @@ function createScoresheetCanvas(g) {
 function downloadSheetBlob(blob,fileName) {
   const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=fileName;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
+let _savingScoresheet=false;
 async function saveScoresheet(historyIdx=-1) {
+  if(_savingScoresheet)return;
+  _savingScoresheet=true;
   const status=document.getElementById('sheet-save-status');
+  const buttons=[...document.querySelectorAll('button[onclick^="saveScoresheet("]')];
+  buttons.forEach(b=>b.disabled=true);
   let canvas;
   try {
-    const game=historyIdx<0?S:S.history[historyIdx];
-    canvas=createScoresheetCanvas(game);
-    const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('画像の生成に失敗しました。')),'image/png'));
+    const game=historyIdx<0?S:S.history[historyIdx],sets=getSheetSets(game);
+    if(!sets.length)throw Error('投擲記録がありません。');
+    if(status)status.textContent='セットごとの画像を作成しています…';
     const date=new Date(game.startedAt||Date.now());
-    const fileName=`scoresheet_${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}.png`;
-    const file=new File([blob],fileName,{type:'image/png'});
-    if(navigator.share&&navigator.canShare?.({files:[file]})) {
-      try {await navigator.share({files:[file],title:'スコアシート'});if(status)status.textContent='共有メニューへ画像を渡しました。';}
-      catch(e) {if(e.name==='AbortError')return;downloadSheetBlob(blob,fileName);if(status)status.textContent='画像をダウンロードしました。';}
-    } else {downloadSheetBlob(blob,fileName);if(status)status.textContent='画像をダウンロードしました。';}
+    const prefix=`scoresheet_${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+    const files=[];
+    for(const set of sets){
+      canvas=createScoresheetCanvas(game,[set]);
+      const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('画像の生成に失敗しました。')),'image/png'));
+      files.push(new File([blob],`${prefix}_set-${set.setNum}.png`,{type:'image/png'}));
+      canvas.width=0;canvas.height=0;canvas=null;
+    }
+    const canShare=!!(navigator.share&&navigator.canShare?.({files}));
+    function showDownloads(message){
+      if(!status||!status.isConnected)return;
+      status.textContent=message;
+      const actions=document.createElement('span');actions.style.cssText='display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
+      function action(label,fn){const b=document.createElement('button');b.className='btn btn-gray btn-sm';b.textContent=label;b.onclick=fn;actions.append(b);}
+      if(canShare)action('画像をまとめて共有',shareFiles);
+      files.forEach((file,i)=>action(`セット${sets[i].setNum}を保存`,()=>downloadSheetBlob(file,file.name)));
+      status.append(actions);
+    }
+    async function shareFiles(){
+      try{await navigator.share({files,title:'スコアシート'});if(status?.isConnected)status.textContent=`${files.length}枚の画像を共有メニューへ渡しました。`;}
+      catch(e){showDownloads(e.name==='AbortError'?'共有をキャンセルしました。':'共有を開けませんでした。下のボタンから再度共有するか、セットごとに保存できます。');}
+    }
+    if(canShare)await shareFiles();
+    else if(files.length===1){downloadSheetBlob(files[0],files[0].name);if(status)status.textContent='画像をダウンロードしました。';}
+    else showDownloads(`${files.length}枚の画像を作成しました。この端末では、下のボタンからセットごとに保存してください。`);
   } catch(e) {if(status)status.textContent=e.message;else alert(e.message);}
-  finally{if(canvas){canvas.width=0;canvas.height=0;}}
+  finally{if(canvas){canvas.width=0;canvas.height=0;}buttons.forEach(b=>b.disabled=false);_savingScoresheet=false;}
 }
 
 // 手動投擲タイマー。得点入力とは独立し、再描画・再読み込み後も経過を維持する。
