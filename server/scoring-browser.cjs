@@ -3,6 +3,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=r
   const {Scoring}=await import('./scoring-core.mjs'),{digest,randomToken,Management,HOME_LINK_ID}=await import('./management-core.mjs');
   const values=new Map(),db={path:'control',at(p){return{...this,path:p}},async read(){return structuredClone(values.get(this.path)||null)},async mutate(fn){const r=fn(await this.read());values.set(this.path,structuredClone(r.state));return r.reply;}};
   const id=crypto.randomUUID(),key=randomToken();values.set('control',{initialized:true,links:{[id]:{name:'test',enabled:true,discarded:false,generation:1,capabilityHash:await digest(key)}}});
+  db.archiveLink=async(id,generation,key,record)=>{const l=values.get('control')?.links?.[id];if(!l?.enabled||l.discarded||l.generation!==generation)throw Error('DB_PERMISSION_DENIED');const p='archives/'+id+'/'+key;if(!values.has(p))values.set(p,structuredClone(record));};
   const core=new Scoring(db,{async authorized(t){assert.equal(t,'manager')},async ensureHome(){return new Management(db,{}, {inputReady:true}).ensureHome()}}),browser=await chromium.launch({executablePath:'/tmp/chromium',args:['--no-sandbox','--disable-gpu','--disable-dev-shm-usage']});
   const offline=new Set(),dropReply=new Set(),holdInspect=new Set(),releaseInspect=new Map(),contexts=[],errors=[];
   async function page(width,managed=true,init=null){

@@ -68,7 +68,7 @@ async function dashboard(){
     const maintenance=node('div',undefined,options);maintenance.className='maintenance-actions';
     button(maintenance,l.enabled?'無効にする':'有効にする',async()=>{await api('admin/links/'+l.id+'/'+(l.enabled?'disable':'enable'),{});await dashboard();});
     button(maintenance,'管理名を変更',async()=>{const value=prompt('新しい管理名',l.name);if(value!==null){await api('admin/links/'+l.id+'/rename',{name:value});await dashboard();}});
-    button(maintenance,'廃棄',async()=>{if(confirm('このリンクを永久に使えなくします。元には戻せません。廃棄しますか？')){await api('admin/links/'+l.id+'/discard',{});await dashboard();}},'danger');
+    button(maintenance,'廃棄',async()=>{if(confirm('このリンクと、紐づく現在・過去の試合データを完全に削除します。配信対象の場合は表示も解除します。元には戻せません。廃棄しますか？')){await api('admin/links/'+l.id+'/discard',{});await dashboard();}},'danger');
   }
 }
 function badge(parent,text,kind=''){const b=node('span',text,parent);b.className='badge '+kind;return b;}

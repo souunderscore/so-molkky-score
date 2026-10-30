@@ -77,7 +77,17 @@ export class Management{
       return{state:s,reply:publicLink(HOME_LINK_ID,s.links[HOME_LINK_ID])};
     });
   }
-  async list(token){let {s}=await this.authorized(token);if(this.config.inputReady===true&&!s.links[HOME_LINK_ID]){await this.ensureHome();s=state(await this.store.read());}return{links:Object.entries(s.links).map(([id,l])=>publicLink(id,l)).sort((a,b)=>Number(b.fixed)-Number(a.fixed)),selectedLink:s.selectedLink,hidden:s.hidden,question:s.question,inputReady:this.config.inputReady===true};}
+  async cleanupDiscarded(){
+    const existing=state(await this.store.read());let deleted=0;
+    for(const [id,l]of Object.entries(existing.links)){
+      if(id===HOME_LINK_ID||(!l.discarded&&!l.deleting))continue;
+      const staged=await this.store.mutate(current=>{const s=state(current),link=s.links[id],eligible=!!link&&(link.discarded||link.deleting);if(eligible){s.links[id]={enabled:true,discarded:false,generation:null,deleting:true};if(s.selectedLink===id){s.selectedLink=null;s.hidden=true;}s.revision++;}return{state:s,reply:eligible};});
+      if(!staged)continue;
+      await this.store.purgeLink(id);deleted++;
+    }
+    return{deleted};
+  }
+  async list(token){let {s}=await this.authorized(token);if(Object.values(s.links).some(l=>l.discarded||l.deleting)){await this.cleanupDiscarded();s=state(await this.store.read());}if(this.config.inputReady===true&&!s.links[HOME_LINK_ID]){await this.ensureHome();s=state(await this.store.read());}return{links:Object.entries(s.links).filter(([,l])=>!l.discarded&&!l.deleting).map(([id,l])=>publicLink(id,l)).sort((a,b)=>Number(b.fixed)-Number(a.fixed)),selectedLink:s.selectedLink,hidden:s.hidden,question:s.question,inputReady:this.config.inputReady===true};}
   async editLink(token,id,operation,input={}){
     const {hash}=await this.authorized(token),now=this.now();
     // Keys are generated outside the retrying transaction and retained as
@@ -91,17 +101,17 @@ export class Management{
         id=newId;l={name:input.name.trim(),enabled:false,discarded:false,createdAt:now,capability,capabilityHash,generation:0,owner:null,matchId:null};s.links[id]=l;
       }else{
         if(id===HOME_LINK_ID&&operation!=='select')fail('HOME_LINK_FIXED');
-        if(!l)fail('LINK_NOT_FOUND');if(l.discarded)fail('LINK_DISCARDED');
+        if(!l){if(operation==='discard')return{state:s,reply:{id,deleted:true}};fail('LINK_NOT_FOUND');}if(l.discarded||l.deleting){if(operation==='discard')return{state:s,reply:{id,deleted:true}};fail('LINK_DISCARDED');}
         if(operation==='enable'||operation==='disable'){const enabled=operation==='enable';if(l.enabled!==enabled){l.enabled=enabled;l.owner=null;l.generation++;}}
-        else if(operation==='discard'){l.discarded=true;l.enabled=false;l.owner=null;l.generation++;}
+        else if(operation==='discard'){s.links[id]={enabled:true,discarded:false,generation:null,deleting:true};if(s.selectedLink===id){s.selectedLink=null;s.hidden=true;}s.revision++;return{state:s,reply:{id,deleted:true}};}
         else if(operation==='rename'){if(typeof input.name!=='string'||!input.name.trim()||input.name.trim().length>80)fail('LINK_NAME_FORMAT');l.name=input.name.trim();}
         else if(operation==='select'){if(!l.enabled)fail('LINK_DISABLED');s.selectedLink=id;s.hidden=false;}
         else fail('INVALID_OPERATION');
       }
       s.revision++;return{state:s,reply:publicLink(id,l)};
-    });return result;
+    });if(operation==='discard'){await this.cleanupDiscarded();}return result;
   }
-  async linkUrl(token,id){const {s}=await this.authorized(token);if(this.config.inputReady!==true)fail('INPUT_NOT_READY');const l=s.links[id];if(!l||l.discarded)fail('LINK_NOT_FOUND');const u=new URL(this.config.inputUrl);if(id===HOME_LINK_ID){u.search='';u.hash='';}else{u.searchParams.set('input',id);u.hash='key='+l.capability;}return{url:u.href};}
+  async linkUrl(token,id){const {s}=await this.authorized(token);if(this.config.inputReady!==true)fail('INPUT_NOT_READY');const l=s.links[id];if(!l||l.discarded||l.deleting)fail('LINK_NOT_FOUND');const u=new URL(this.config.inputUrl);if(id===HOME_LINK_ID){u.search='';u.hash='';}else{u.searchParams.set('input',id);u.hash='key='+l.capability;}return{url:u.href};}
   async hide(token){const {hash}=await this.authorized(token),now=this.now();return this.store.mutate(current=>{const s=state(current);session(s,hash,now);s.hidden=true;s.revision++;return{state:s,reply:{hidden:true}};});}
   async rotate(role,currentInput,newInput,questionText=null,token=null){
     if(!token)fail('MANAGEMENT_LOGIN_REQUIRED');await this.authorized(token);

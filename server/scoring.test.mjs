@@ -5,6 +5,7 @@ import {digest,randomToken,Management,HOME_LINK_ID,PUBLIC_HOME_KEY} from './mana
 class Memory{
   constructor(){this.values=new Map();this.path='control';}
   at(path){const s=new Memory();s.values=this.values;s.path=path;s.hook=this.hook;return s;}
+  async archiveLink(id,generation,key,record){const l=this.values.get('control')?.links?.[id];if(!l?.enabled||l.discarded||l.generation!==generation)throw Error('DB_PERMISSION_DENIED');const p='archives/'+id+'/'+key;if(!this.values.has(p))this.values.set(p,structuredClone(record));}
   async read(){return structuredClone(this.values.get(this.path)||null);}
   async mutate(fn){
     if(this.hook)await this.hook(this.path);

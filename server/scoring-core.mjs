@@ -33,7 +33,7 @@ export class Scoring{
     if(id===HOME_LINK_ID&&key===PUBLIC_HOME_KEY&&!s?.links?.[id]){await this.management.ensureHome();s=await this.control.read();}
     const l=s?.links?.[id];
     if(!l||await digest(key)!==l.capabilityHash)fail('INPUT_LINK_INVALID');
-    if(l.discarded)fail('LINK_DISCARDED');if(!l.enabled)fail('LINK_DISABLED');
+    if(l.discarded||l.deleting)fail('LINK_DISCARDED');if(!l.enabled)fail('LINK_DISABLED');
     return {l,hash:await digest(device),store:this.control.at('rooms/'+id)};
   }
   async inspect(id,key,device){const {l,hash,store}=await this.permit(id,key,device);return {name:l.name,...summary(room(await store.read(),l.generation),hash)};}
@@ -51,7 +51,7 @@ export class Scoring{
       const before=room(await store.read(),l.generation);owned(before,hash,input.ownerEpoch);
       if(before.current&&before.current.id!==input.matchId){
         const c=before.current,archiveKey=c.id+'-'+c.version;
-        await this.control.at('archives/'+id+'/'+archiveKey).mutate(value=>({state:value||{...c,at:now},reply:true}));
+        await this.control.archiveLink(id,l.generation,archiveKey,{...c,at:now});
         archived={key:archiveKey,id:c.id,version:c.version,at:now};
       }
     }
@@ -90,7 +90,7 @@ export class Scoring{
   }
   async force(token,id,requestId){
     await this.management.authorized(token);
-    const c=await this.control.read(),l=c?.links?.[id];if(!l||!l.enabled||l.discarded)fail('LINK_DISABLED');
+    const c=await this.control.read(),l=c?.links?.[id];if(!l||!l.enabled||l.discarded||l.deleting)fail('LINK_DISABLED');
     const epoch=randomToken(),now=this.now();
     return this.control.at('rooms/'+id).mutate(value=>{
       const r=room(value,l.generation);

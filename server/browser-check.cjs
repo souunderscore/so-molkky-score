@@ -4,6 +4,7 @@ const{chromium}=require('playwright'),assert=require('node:assert/strict');
   const browser=await chromium.launch({executablePath:'/tmp/chromium',args:['--no-sandbox','--disable-gpu','--disable-dev-shm-usage'],headless:true});
   try{for(const width of [320,390,768]){
     const state={value:null,async read(){return structuredClone(this.value)},async mutate(fn){const r=fn(structuredClone(this.value));this.value=r.state;return r.reply;}};
+    state.purgeLink=async id=>{delete state.value.links[id];};
     const users=new Map(),credentials={async create(role,input){const uid=crypto.randomUUID();users.set(uid,{role,input});return{account:{uid,email:uid+'@test.invalid'},proof:{idToken:uid}};},provider(accounts){return{async verify(role,input){const uid=accounts[role].uid,u=users.get(uid);if(!u||u.input!==input||u.role!==role)throw Error('INVALID_CREDENTIAL');return{uid,role,idToken:uid};}}},async remove(p){users.delete(p.idToken);return true;}};
     const management=new Management(state,credentials,{bootstrapHash:await digest('synthetic-setup'),bootstrapExpires:Date.now()+60000,inputUrl:'https://score.test/index.html',inputReady:true});
     const context=await browser.newContext({viewport:{width,height:844}}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -41,6 +42,7 @@ const{chromium}=require('playwright'),assert=require('node:assert/strict');
     await page.getByRole('button',{name:'認証設定',exact:true}).click();await page.getByLabel('現在の秘密の回答',{exact:true}).fill('test answer');await page.getByLabel('新しい質問',{exact:true}).fill('changed question');await page.getByLabel('新しい回答',{exact:true}).fill('changed answer');await page.getByRole('button',{name:'質問・回答を変更',exact:true}).click();
     await page.getByRole('button',{name:'パスコードを忘れた',exact:true}).click();await page.getByText('changed question',{exact:true}).waitFor();await page.getByLabel('秘密の回答',{exact:true}).fill('changed answer');await page.getByLabel('新しいパスコード（数字6〜12桁）').fill('987654');await page.getByRole('button',{name:'再設定',exact:true}).click();
     await page.getByLabel('パスコード',{exact:true}).fill('987654');await page.getByRole('button',{name:'ログイン',exact:true}).click();await page.getByRole('heading',{name:'入力用リンク',exact:true}).waitFor();
+    page.on('dialog',d=>d.accept());await regular.getByText('その他の操作',{exact:true}).click();await regular.getByRole('button',{name:'廃棄',exact:true}).click();await regular.waitFor({state:'detached'});assert.equal(await page.getByRole('heading',{name:'ホーム',exact:true}).count(),1);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);assert.deepEqual(errors,[]);console.log('management UI passed at '+width+'px');await context.close();
   }}finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1)});

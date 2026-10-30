@@ -48,4 +48,16 @@ test('real Database rules: private control, public selection, selected display o
   assert.equal((await request('/stream_v1/rooms/'+id,'PUT',current,uid)).status,401);
   const newOwner=await scoring.edit(id,key,b,'claim');assert.equal(newOwner.generation,2);assert.equal(newOwner.isOwner,true);
   assert.equal(JSON.parse(newOwner.current.json).teams[0].history.length,0);
+  const archiveKey=input.matchId+'-1';
+  await store.archiveLink(id,2,archiveKey,saved.current);
+  assert.equal((await store.at('archives/'+id+'/'+archiveKey).read()).id,input.matchId);
+  const otherBefore=await store.at('rooms/'+other).read();
+  await manager.editLink('manager-session',id,'discard');
+  assert.equal(await store.at('rooms/'+id).read(),null);assert.equal(await store.at('archives/'+id).read(),null);
+  const final=await store.read();assert.equal(final.links[id],undefined);assert.equal(final.selectedLink??null,null);assert.equal(final.hidden,true);assert.equal(final.links[other].enabled,true);
+  assert.deepEqual(await store.at('rooms/'+other).read(),otherBefore);
+  await assert.rejects(store.archiveLink(id,2,archiveKey,saved.current),/DB_PERMISSION_DENIED/);
+  assert.equal(await store.at('archives/'+id).read(),null);
+  assert.equal((await request('/stream_v1/rooms/'+id,'PUT',{generation:2,...current},uid)).status,401);
+  await store.purgeLink(id);assert.equal(await store.at('rooms/'+id).read(),null);
 });

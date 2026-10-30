@@ -30,8 +30,8 @@ export class FirebaseControlStore{
   }
   async request(method,body,etag){
     const token=await this.idToken();
-    const response=await this.fetch(this.database+'/stream_v1/'+this.path+'.json?auth='+encodeURIComponent(token),{
-      method,headers:{'Content-Type':'application/json','X-Firebase-ETag':'true',...(etag?{'if-match':etag}:{})},
+    const response=await this.fetch(this.database+'/stream_v1'+(this.path?'/'+this.path:'')+'.json?auth='+encodeURIComponent(token),{
+      method,headers:{'Content-Type':'application/json',...(method==='PATCH'?{}:{'X-Firebase-ETag':'true'}),...(etag?{'if-match':etag}:{})},
       signal:AbortSignal.timeout(12000),...(body===undefined?{}:{body:JSON.stringify(body)})});
     if(response.status===401||response.status===403){await response.body?.cancel();throw Error('DB_PERMISSION_DENIED');}
     return response;
@@ -39,6 +39,26 @@ export class FirebaseControlStore{
   async read(){
     const r=await this.request('GET');if(!r.ok){await r.body?.cancel();throw Error('DB_UNAVAILABLE');}
     return await readJson(r);
+  }
+  async patchPaths(paths){
+    const r=await this.at('').request('PATCH',paths);
+    if(!r.ok){await r.body?.cancel();throw Error('COMMIT_UNKNOWN');}
+    await r.body?.cancel();
+  }
+  async archiveLink(id,generation,key,record){
+    // The room generation makes the whole atomic archive write fail after
+    // disable or discard. A delayed request cannot recreate deleted archives.
+    await this.patchPaths({['rooms/'+id+'/generation']:generation,['archives/'+id+'/'+key]:record});
+  }
+  async purgeLink(id){
+    // Management first revokes capabilities and sets the generation to null.
+    // Existing rules then permit this atomic deletion without a rules change.
+    try{await this.patchPaths({['rooms/'+id]:null,['archives/'+id]:null,['control/links/'+id]:null});}
+    catch(error){
+      const control=await this.at('control').read();
+      if(!control?.links?.[id]&&await this.at('rooms/'+id).read()===null&&await this.at('archives/'+id).read()===null)return;
+      throw error;
+    }
   }
   async mutate(transition){
     for(let attempt=0;attempt<6;attempt++){
