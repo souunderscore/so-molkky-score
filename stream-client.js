@@ -2,16 +2,18 @@
    pending state into a match accepted from another device. */
 (function(root){
   const API='https://so-molkky-score-api.sou-underscore.workers.dev/api/';
+  const HOME_LINK_ID='00000000-0000-4000-8000-000000000001';
+  // Public home identifier; ownership still requires a private device token.
+  const PUBLIC_HOME_KEY='e94f3e189a1fc422c7aa3cfada5eb7c1bc881b442e39afa647be81de7b10d2ef';
   const errors={LINK_DISABLED:'この入力リンクは無効です。',LINK_DISCARDED:'この入力リンクは廃棄されています。',INPUT_LINK_INVALID:'入力リンクを確認してください。',INPUT_OWNER_LOST:'入力担当が別の端末に交代しました。',INPUT_BUSY:'ほかの端末が入力中です。',SCORE_CONFLICT:'別の更新と重なりました。未送信の記録を確認してください。',SCORE_TOO_LARGE:'記録の容量が上限に達しました。端末に記録は残っています。',CONTROL_TOO_LARGE:'記録の容量が上限に達しました。端末に記録は残っています。',MATCH_LIMIT:'このリンクの試合数が上限に達しました。',DB_PERMISSION_DENIED:'接続設定の完了待ちです。',INPUT_NOT_READY:'入力リンクの準備中です。',HANDOFF_EXPIRED:'交代の申請が期限切れです。もう一度申請してください。'};
   const random=()=>Array.from(crypto.getRandomValues(new Uint8Array(32)),n=>n.toString(16).padStart(2,'0')).join('');
   class Client{
     constructor(){
-      const u=new URL(location.href);this.id=u.searchParams.get('input');this.active=!!this.id;this.apiBase=API;
-      if(!this.active)return;
+      const u=new URL(location.href);this.id=u.searchParams.get('input')||HOME_LINK_ID;this.isHome=this.id===HOME_LINK_ID;this.active=true;this.apiBase=API;
       this.storageKey='molkky_stream_'+this.id;this.cacheKey=this.storageKey+'_state';this.message='接続を確認しています…';this.ready=false;this.locked=true;this.offline=false;this.busy=false;this.info=null;this.lastError=null;
       try{
         this.cache=JSON.parse(localStorage.getItem(this.storageKey)||'null')||{};
-        this.key=new URLSearchParams(u.hash.slice(1)).get('key')||this.cache.key;
+        this.key=this.isHome?PUBLIC_HOME_KEY:new URLSearchParams(u.hash.slice(1)).get('key')||this.cache.key;
         this.device=this.cache.device||random();this.cache.key=this.key;this.cache.device=this.device;
         this.persist();
         if(u.hash){history.replaceState(null,'',u.pathname+u.search);}

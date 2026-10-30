@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Scoring} from './scoring-core.mjs';
-import {digest,randomToken} from './management-core.mjs';
+import {digest,randomToken,Management,HOME_LINK_ID,PUBLIC_HOME_KEY} from './management-core.mjs';
 class Memory{
   constructor(){this.values=new Map();this.path='control';}
   at(path){const s=new Memory();s.values=this.values;s.path=path;s.hook=this.hook;return s;}
@@ -65,4 +65,14 @@ test('new match archives confirmed previous record; a retry never archives itsel
 test('malformed snapshots and mismatched public scores are rejected',async()=>{
   const f=await fixture(),{input}=await start(f);
   await assert.rejects(f.s.edit(f.id,f.key,f.a,'save',{...input,version:1,opId:crypto.randomUUID(),viewJson:snap(3).viewJson}),/INVALID_SCORE/);
+});
+
+test('public home uses the same exclusive ownership and handoff as issued links',async()=>{
+ const db=new Memory();db.values.set('control',{initialized:true,links:{}});const management=new Management(db,{}, {inputReady:true}),s=new Scoring(db,management),a=randomToken(),b=randomToken();
+ assert.equal((await s.inspect(HOME_LINK_ID,PUBLIC_HOME_KEY,a)).hasOwner,false);assert.equal(db.values.has('rooms/'+HOME_LINK_ID),false);
+ const claimed=await s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,a,'claim');const snapshot={...snap(7),opId:crypto.randomUUID(),matchId:crypto.randomUUID(),version:null,ownerEpoch:claimed.ownerEpoch};await s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,a,'new',snapshot);
+ await assert.rejects(s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,b,'claim'),/INPUT_BUSY/);await assert.rejects(s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,b,'save',{...snapshot,opId:crypto.randomUUID(),version:1}),/INPUT_OWNER_LOST/);
+ const requested=await s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,b,'request');await s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,a,'approve',{requestId:requested.transfer.id,ownerEpoch:claimed.ownerEpoch,version:1});
+ assert.equal((await s.inspect(HOME_LINK_ID,PUBLIC_HOME_KEY,b)).isOwner,true);assert.equal(JSON.parse((await s.inspect(HOME_LINK_ID,PUBLIC_HOME_KEY,b)).current.json).teams[0].score,7);
+ await assert.rejects(s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,a,'save',{...snapshot,opId:crypto.randomUUID(),version:1}),/INPUT_OWNER_LOST/);
 });

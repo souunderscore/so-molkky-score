@@ -9,7 +9,7 @@ const app=document.getElementById('app'),status=document.getElementById('status'
 const saved={get:k=>{try{return sessionStorage.getItem(k)||'';}catch{return '';}},set:(k,v)=>{try{sessionStorage.setItem(k,v);}catch{}},remove:k=>{try{sessionStorage.removeItem(k);}catch{}}};
 const boot=new URLSearchParams(location.hash.slice(1)).get('setup');let setupToken=boot||saved.get('molkky_setup');if(boot){saved.set('molkky_setup',boot);history.replaceState(null,'',location.pathname);}
 let token=saved.get('molkky_manager'),busy=false;
-const messages={DB_PERMISSION_DENIED:'接続設定の完了待ちです。今は設定を開始できません。',NOT_CONFIGURED:'初期設定の準備中です。',INVALID_CREDENTIAL:'入力内容を確認してください。',RATE_LIMITED:'試行回数が多いため、1分ほど待ってからお試しください。',MANAGEMENT_LOGIN_REQUIRED:'管理者ログインが必要です。',SETUP_NOT_ALLOWED:'初回設定用の案内から開いてください。有効期限が切れた場合は再発行が必要です。',ALREADY_INITIALIZED:'初期設定は完了しています。ログインしてください。',PASSCODE_FORMAT:'パスコードは数字6〜12桁で入力してください。',ANSWER_FORMAT:'秘密の回答を入力してください。',QUESTION_FORMAT:'秘密の質問を120文字以内で入力してください。',LINK_NAME_FORMAT:'管理名を80文字以内で入力してください。',LINK_DISCARDED:'廃棄したリンクは利用できません。',LINK_DISABLED:'先にリンクを有効にしてください。',COMMIT_UNKNOWN:'保存結果を確認できませんでした。再読み込みして状態を確認してください。',AUTH_UNAVAILABLE:'認証に接続できませんでした。時間を置いてお試しください。',ACCOUNT_CREATE_FAILED:'認証設定を保存できませんでした。接続設定を確認してください。',STALE_AUTH:'認証設定が変更されました。ログインし直してください。',CONFLICT_RETRY:'ほかの操作と重なりました。再度お試しください。'};
+const messages={HOME_LINK_FIXED:'ホームの固定リンクは変更・無効化・廃棄できません。',DB_PERMISSION_DENIED:'接続設定の完了待ちです。今は設定を開始できません。',NOT_CONFIGURED:'初期設定の準備中です。',INVALID_CREDENTIAL:'入力内容を確認してください。',RATE_LIMITED:'試行回数が多いため、1分ほど待ってからお試しください。',MANAGEMENT_LOGIN_REQUIRED:'管理者ログインが必要です。',SETUP_NOT_ALLOWED:'初回設定用の案内から開いてください。有効期限が切れた場合は再発行が必要です。',ALREADY_INITIALIZED:'初期設定は完了しています。ログインしてください。',PASSCODE_FORMAT:'パスコードは数字6〜12桁で入力してください。',ANSWER_FORMAT:'秘密の回答を入力してください。',QUESTION_FORMAT:'秘密の質問を120文字以内で入力してください。',LINK_NAME_FORMAT:'管理名を80文字以内で入力してください。',LINK_DISCARDED:'廃棄したリンクは利用できません。',LINK_DISABLED:'先にリンクを有効にしてください。',COMMIT_UNKNOWN:'保存結果を確認できませんでした。再読み込みして状態を確認してください。',AUTH_UNAVAILABLE:'認証に接続できませんでした。時間を置いてお試しください。',ACCOUNT_CREATE_FAILED:'認証設定を保存できませんでした。接続設定を確認してください。',STALE_AUTH:'認証設定が変更されました。ログインし直してください。',CONFLICT_RETRY:'ほかの操作と重なりました。再度お試しください。'};
 function node(tag,text,parent=app){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;parent.append(n);return n;}
 let fieldId=0;
 function field(parent,label,type='text'){const l=node('label',label,parent),i=node('input',undefined,parent);i.id='field-'+(++fieldId);l.htmlFor=i.id;i.type=type;i.autocomplete='off';return i;}
@@ -42,19 +42,21 @@ async function dashboard(){
     const box=node('section');box.className='link-card'+(data.selectedLink===l.id?' is-selected':'')+(l.discarded?' is-retired':'');
     const title=node('h2',l.name,box);title.className='link-title';
     const badges=node('div',undefined,box);badges.className='badge-row';badge(badges,l.discarded?'廃棄済み':l.enabled?'有効':'無効',!l.discarded&&l.enabled?'enabled':'');
+    if(l.fixed)badge(badges,'固定リンク');
     if(data.selectedLink===l.id)badge(badges,data.hidden?'配信対象（非表示）':'現在の配信対象','selected');
     if(!l.discarded){
       const main=node('div',undefined,box);main.className='link-actions';
       let share;
-      if(data.inputReady)button(main,'リンクを表示',async()=>{
-        const d=await api('admin/links/'+l.id+'/url');if(share)share.remove();share=node('div',undefined,box);share.className='url-panel';
+      if(data.inputReady){const reveal=button(main,'リンクを表示',async()=>{
+        if(share){share.remove();share=null;reveal.textContent='リンクを表示';return;}
+        const d=await api('admin/links/'+l.id+'/url');share=node('div',undefined,box);share.className='url-panel';
         const i=field(share,'入力用URL');i.value=d.url;i.readOnly=true;
         const row=node('div',undefined,share);row.className='url-row';row.append(i);
-        button(row,'コピー',async()=>{await navigator.clipboard.writeText(d.url);status.textContent='コピーしました。';});i.select();
-      });
+        button(row,'コピー',async()=>{await navigator.clipboard.writeText(d.url);status.textContent='コピーしました。';});i.select();reveal.textContent='リンクを隠す';
+      });}
       if(l.enabled){const select=button(main,'配信対象にする',async()=>{await api('admin/links/'+l.id+'/select',{});await dashboard();},'primary');select.disabled=data.selectedLink===l.id&&!data.hidden;}
     }
-    const options=node('details',undefined,box);options.className='link-options';node('summary','管理と記録',options);
+    const options=node('details',undefined,box);options.className='link-options';node('summary','その他の操作',options);
     const secondary=node('div',undefined,options);secondary.className='secondary-actions';
     const pending=node('div',undefined,options);pending.className='detail-panel';
     button(secondary,'入力担当・交代申請を確認',async()=>{
@@ -62,13 +64,7 @@ async function dashboard(){
       if(p.requestId&&!l.discarded&&l.enabled)button(pending,'この申請端末へ強制交代',async()=>{if(confirm('引き継げるのはサーバー保存済みの記録までです。旧端末の未送信分は引き継がれません。強制交代しますか？')){await api('admin/links/'+l.id+'/force',{requestId:p.requestId});await dashboard();}},'danger');
       else node('p',p.requestId?'入力交代にはリンクを有効にしてください。':'現在、交代申請はありません。新しい端末から先に申請してください。',pending);
     });
-    const records=node('div',undefined,options);records.className='detail-panel';
-    button(secondary,'保存済み記録を確認',async()=>{
-      const r=await api('admin/links/'+l.id+'/records');records.replaceChildren();node('p','過去の試合：'+r.history.length+'件',records);
-      if(r.current)button(records,'現在の記録を保存',()=>downloadRecord(r.current,'molkky-current.json'));
-      for(const h of r.history)button(records,new Date(h.at).toLocaleString('ja-JP')+'の記録を保存',async()=>{const record=await api('admin/links/'+l.id+'/archive',{archiveKey:h.key});downloadRecord(record,'molkky-record.json');});
-    });
-    if(l.discarded)continue;
+    if(l.discarded||l.fixed)continue;
     const maintenance=node('div',undefined,options);maintenance.className='maintenance-actions';
     button(maintenance,l.enabled?'無効にする':'有効にする',async()=>{await api('admin/links/'+l.id+'/'+(l.enabled?'disable':'enable'),{});await dashboard();});
     button(maintenance,'管理名を変更',async()=>{const value=prompt('新しい管理名',l.name);if(value!==null){await api('admin/links/'+l.id+'/rename',{name:value});await dashboard();}});
@@ -76,7 +72,6 @@ async function dashboard(){
   }
 }
 function badge(parent,text,kind=''){const b=node('span',text,parent);b.className='badge '+kind;return b;}
-function downloadRecord(record,name){const blob=new Blob([record.json],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
 function settings(){clear();const box=node('section');node('h2','パスコード変更',box);const old=field(box,'現在のパスコード','password'),next=field(box,'新しいパスコード（数字6〜12桁）','password');old.inputMode=next.inputMode='numeric';button(box,'パスコードを変更',async()=>{await api('admin/password',{current:old.value,next:next.value});await signedOut();status.textContent='全端末の管理ログインを終了しました。新しいパスコードでログインしてください。';},'primary');const qbox=node('section');node('h2','秘密の質問・回答を変更',qbox);const answer=field(qbox,'現在の秘密の回答','password'),q=field(qbox,'新しい質問'),a=field(qbox,'新しい回答','password');button(qbox,'質問・回答を変更',async()=>{await api('admin/question',{current:answer.value,question:q.value,next:a.value});await signedOut();status.textContent='変更しました。パスコードでログインし直してください。';});button(qbox,'戻る',dashboard);}
 start();
 </script></html>`;}

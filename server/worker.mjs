@@ -4,7 +4,7 @@ import {adminHtml} from './admin-ui.mjs';
 import {Scoring} from './scoring-core.mjs';
 import * as preview from './preview-assets.mjs';
 const safeErrors=new Set(['NOT_CONFIGURED','DB_PERMISSION_DENIED','MANAGEMENT_LOGIN_REQUIRED','SETUP_NOT_ALLOWED','ALREADY_INITIALIZED','SETUP_IN_PROGRESS','NOT_INITIALIZED','RATE_LIMITED','INVALID_CREDENTIAL','AUTH_UNAVAILABLE','ACCOUNT_CREATE_FAILED','PASSCODE_FORMAT','QUESTION_FORMAT','ANSWER_FORMAT','STALE_AUTH','CONFLICT_RETRY','COMMIT_UNKNOWN','LINK_NAME_FORMAT','LINK_NOT_FOUND','LINK_DISCARDED','LINK_DISABLED','LINK_LIMIT','INPUT_NOT_READY']);
-for(const code of ['INPUT_LINK_INVALID','INPUT_OWNER_LOST','INPUT_BUSY','ALREADY_INPUT_OWNER','NO_INPUT_OWNER','HANDOFF_PENDING','HANDOFF_EXPIRED','SCORE_CONFLICT','INVALID_SCORE','SCORE_TOO_LARGE','MATCH_LIMIT','MATCH_NOT_FOUND','CONTROL_TOO_LARGE'])safeErrors.add(code);
+for(const code of ['HOME_LINK_FIXED','INPUT_LINK_INVALID','INPUT_OWNER_LOST','INPUT_BUSY','ALREADY_INPUT_OWNER','NO_INPUT_OWNER','HANDOFF_PENDING','HANDOFF_EXPIRED','SCORE_CONFLICT','INVALID_SCORE','SCORE_TOO_LARGE','MATCH_LIMIT','MATCH_NOT_FOUND','CONTROL_TOO_LARGE'])safeErrors.add(code);
 async function jsonBody(request,limit=8192){const reader=request.body?.getReader();if(!reader)throw Error('INVALID_BODY');let size=0,chunks=[];for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>limit){await reader.cancel();throw Error('INVALID_BODY');}chunks.push(value);}const all=new Uint8Array(size);let at=0;for(const chunk of chunks){all.set(chunk,at);at+=chunk.length;}return JSON.parse(new TextDecoder().decode(all));}
 export default{
   async fetch(request,env){

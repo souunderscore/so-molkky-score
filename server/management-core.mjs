@@ -1,5 +1,8 @@
 import {FirebasePasswordProvider,prepareCredential} from './firebase-auth.mjs';
 const enc=new TextEncoder(),HOUR=3600000;
+export const HOME_LINK_ID='00000000-0000-4000-8000-000000000001';
+// The home is intentionally public; this identifier is not an access secret.
+export const PUBLIC_HOME_KEY='e94f3e189a1fc422c7aa3cfada5eb7c1bc881b442e39afa647be81de7b10d2ef';
 const fail=code=>{throw Error(code);};
 export const randomToken=()=>Array.from(crypto.getRandomValues(new Uint8Array(32)),x=>x.toString(16).padStart(2,'0')).join('');
 export async function digest(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(value))),x=>x.toString(16).padStart(2,'0')).join('');}
@@ -11,7 +14,7 @@ function session(s,hash,now){clean(s,now);if(!s.initialized||s.blocked||!s.sessi
 function passcode(input){if(typeof input!=='string'||!/^\d{6,12}$/.test(input))fail('PASSCODE_FORMAT');}
 function question(input){if(typeof input!=='string'||!input.trim()||input.trim().length>120)fail('QUESTION_FORMAT');}
 function answer(input){if(typeof input!=='string'||!input.length||enc.encode(input).length>512)fail('ANSWER_FORMAT');}
-const publicLink=(id,l)=>({id,name:l.name,enabled:l.enabled,discarded:l.discarded,createdAt:l.createdAt,hasInputOwner:!!l.owner});
+const publicLink=(id,l)=>({id,name:l.name,enabled:l.enabled,discarded:l.discarded,createdAt:l.createdAt,hasInputOwner:!!l.owner,fixed:id===HOME_LINK_ID});
 
 export class CredentialAccounts{
   constructor(env,fetchImpl=(...args)=>fetch(...args)){this.env=env;this.fetch=fetchImpl;}
@@ -63,7 +66,18 @@ export class Management{
   }
   async authorized(token){const hash=await digest(token||''),s=state(await this.store.read());session(s,hash,this.now());return{hash,s};}
   async logout(token){const hash=await digest(token||'');return this.store.mutate(current=>{const s=state(current);delete s.sessions[hash];s.revision++;return{state:s,reply:{loggedOut:true}};});}
-  async list(token){const {s}=await this.authorized(token);return{links:Object.entries(s.links).map(([id,l])=>publicLink(id,l)),selectedLink:s.selectedLink,hidden:s.hidden,question:s.question,inputReady:this.config.inputReady===true};}
+  async ensureHome(){
+    const existing=state(await this.store.read());
+    if(existing.links[HOME_LINK_ID])return publicLink(HOME_LINK_ID,existing.links[HOME_LINK_ID]);
+    if(!existing.initialized||this.config.inputReady!==true)fail('INPUT_NOT_READY');
+    const now=this.now(),capabilityHash=await digest(PUBLIC_HOME_KEY);
+    return this.store.mutate(current=>{
+      const s=state(current);if(!s.initialized)fail('INPUT_NOT_READY');
+      if(!s.links[HOME_LINK_ID]){s.links[HOME_LINK_ID]={name:'ホーム',enabled:true,discarded:false,createdAt:now,capability:PUBLIC_HOME_KEY,capabilityHash,generation:1,owner:null,matchId:null};s.revision++;}
+      return{state:s,reply:publicLink(HOME_LINK_ID,s.links[HOME_LINK_ID])};
+    });
+  }
+  async list(token){let {s}=await this.authorized(token);if(this.config.inputReady===true&&!s.links[HOME_LINK_ID]){await this.ensureHome();s=state(await this.store.read());}return{links:Object.entries(s.links).map(([id,l])=>publicLink(id,l)).sort((a,b)=>Number(b.fixed)-Number(a.fixed)),selectedLink:s.selectedLink,hidden:s.hidden,question:s.question,inputReady:this.config.inputReady===true};}
   async editLink(token,id,operation,input={}){
     const {hash}=await this.authorized(token),now=this.now();
     // Keys are generated outside the retrying transaction and retained as
@@ -76,6 +90,7 @@ export class Management{
         if(Object.keys(s.links).length>=200)fail('LINK_LIMIT');
         id=newId;l={name:input.name.trim(),enabled:false,discarded:false,createdAt:now,capability,capabilityHash,generation:0,owner:null,matchId:null};s.links[id]=l;
       }else{
+        if(id===HOME_LINK_ID&&operation!=='select')fail('HOME_LINK_FIXED');
         if(!l)fail('LINK_NOT_FOUND');if(l.discarded)fail('LINK_DISCARDED');
         if(operation==='enable'||operation==='disable'){const enabled=operation==='enable';if(l.enabled!==enabled){l.enabled=enabled;l.owner=null;l.generation++;}}
         else if(operation==='discard'){l.discarded=true;l.enabled=false;l.owner=null;l.generation++;}
@@ -86,7 +101,7 @@ export class Management{
       s.revision++;return{state:s,reply:publicLink(id,l)};
     });return result;
   }
-  async linkUrl(token,id){const {s}=await this.authorized(token);if(this.config.inputReady!==true)fail('INPUT_NOT_READY');const l=s.links[id];if(!l||l.discarded)fail('LINK_NOT_FOUND');const u=new URL(this.config.inputUrl);u.searchParams.set('input',id);u.hash='key='+l.capability;return{url:u.href};}
+  async linkUrl(token,id){const {s}=await this.authorized(token);if(this.config.inputReady!==true)fail('INPUT_NOT_READY');const l=s.links[id];if(!l||l.discarded)fail('LINK_NOT_FOUND');const u=new URL(this.config.inputUrl);if(id===HOME_LINK_ID){u.search='';u.hash='';}else{u.searchParams.set('input',id);u.hash='key='+l.capability;}return{url:u.href};}
   async hide(token){const {hash}=await this.authorized(token),now=this.now();return this.store.mutate(current=>{const s=state(current);session(s,hash,now);s.hidden=true;s.revision++;return{state:s,reply:{hidden:true}};});}
   async rotate(role,currentInput,newInput,questionText=null,token=null){
     if(!token)fail('MANAGEMENT_LOGIN_REQUIRED');await this.authorized(token);

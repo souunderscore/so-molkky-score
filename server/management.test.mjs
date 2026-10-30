@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Management,digest} from './management-core.mjs';
+import {Management,digest,HOME_LINK_ID,PUBLIC_HOME_KEY} from './management-core.mjs';
 import {FirebaseControlStore} from './firebase-store.mjs';
 class Memory{
   value=null;
@@ -24,7 +24,7 @@ test('initial setup requires unexpired secret and can run only once',async()=>{
 test('multiple enabled links remain independent and selection is retained',async()=>{
   const{m,token}=await ready();const a=await m.editLink(token,null,'create',{name:'A'}),b=await m.editLink(token,null,'create',{name:'B'});
   assert.equal(a.enabled,false);await m.editLink(token,a.id,'enable');await m.editLink(token,b.id,'enable');await m.editLink(token,a.id,'select');
-  const list=await m.list(token);assert.equal(list.links.filter(l=>l.enabled).length,2);assert.equal(list.selectedLink,a.id);
+  const list=await m.list(token);assert.equal(list.links.filter(l=>l.enabled&&!l.fixed).length,2);assert.equal(list.selectedLink,a.id);
   assert.ok(!JSON.stringify(list).includes('capability'));const url=await m.linkUrl(token,a.id);assert.match(url.url,/#key=[a-f0-9]{64}$/);
 });
 test('disabled and discarded links preserve display selection, discard cannot be undone',async()=>{
@@ -99,3 +99,14 @@ test('Firebase REST conditional writes retry against new state instead of losing
   const update=current=>({state:{count:(current?.count||0)+1},reply:true});
   await Promise.all([a.mutate(update),b.mutate(update)]);assert.equal(value.count,2);assert.ok(conflicts>0);
 });
+
+test('home is a persistent public link; management cannot disable, discard or rename it',async()=>{
+  const {m,token,store}=await ready();
+  const existing=await m.editLink(token,null,'create',{name:'Existing'});await m.editLink(token,existing.id,'enable');await m.editLink(token,existing.id,'select');
+  const first=await m.list(token),home=first.links.find(l=>l.fixed);assert.equal(home.id,HOME_LINK_ID);assert.equal(home.enabled,true);assert.equal(home.discarded,false);assert.equal(first.selectedLink,existing.id);
+  const revision=store.value.revision;await m.ensureHome();assert.equal(store.value.revision,revision);assert.equal(store.value.links[HOME_LINK_ID].capability,PUBLIC_HOME_KEY);
+  for(const op of ['disable','discard','rename','enable'])await assert.rejects(m.editLink(token,HOME_LINK_ID,op,{name:'Changed'}),/HOME_LINK_FIXED/);
+  assert.equal((await m.linkUrl(token,HOME_LINK_ID)).url,'https://score.test/index.html');await m.editLink(token,HOME_LINK_ID,'select');assert.equal((await m.list(token)).selectedLink,HOME_LINK_ID);
+  assert.equal(store.value.links[existing.id].name,'Existing');
+});
+test('public home cannot initialize an unconfigured application',async()=>{const{m,store}=await fixture();await assert.rejects(m.ensureHome(),/INPUT_NOT_READY/);assert.equal(store.value,null);});

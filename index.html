@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>SÖスコア</title>
 <meta name="referrer" content="no-referrer">
-<script src="stream-client.js"></script>
+<script src="stream-client.js?v=home-v1"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 
@@ -368,7 +368,7 @@ function readSavedGameName() {
 
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY)||(stream?.isHome?localStorage.getItem('molkky_local_v3'):null);
     return raw ? JSON.parse(raw) : null;
   } catch(e) { return null; }
 }

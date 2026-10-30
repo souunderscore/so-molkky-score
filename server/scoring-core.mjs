@@ -1,4 +1,4 @@
-import {digest,randomToken} from './management-core.mjs';
+import {digest,randomToken,HOME_LINK_ID,PUBLIC_HOME_KEY} from './management-core.mjs';
 const fail=code=>{throw Error(code);};
 const uuid=v=>typeof v==='string'&&/^[0-9a-f-]{36}$/.test(v);
 const secret=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
@@ -29,7 +29,9 @@ export class Scoring{
   constructor(control,management,now=()=>Date.now()){this.control=control;this.management=management;this.now=now;}
   async permit(id,key,device){
     if(!uuid(id)||!secret(key)||!secret(device))fail('INPUT_LINK_INVALID');
-    const s=await this.control.read(),l=s?.links?.[id];
+    let s=await this.control.read();
+    if(id===HOME_LINK_ID&&key===PUBLIC_HOME_KEY&&!s?.links?.[id]){await this.management.ensureHome();s=await this.control.read();}
+    const l=s?.links?.[id];
     if(!l||await digest(key)!==l.capabilityHash)fail('INPUT_LINK_INVALID');
     if(l.discarded)fail('LINK_DISCARDED');if(!l.enabled)fail('LINK_DISABLED');
     return {l,hash:await digest(device),store:this.control.at('rooms/'+id)};
