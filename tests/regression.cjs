@@ -692,3 +692,14 @@ test('setup initialization clears only current setup; saved match history surviv
   const b=app(a.values.get('molkky_local_v3'));assert.equal(b.run('S.history.length'),1);assert.equal(b.run('S.settings.regMode'),'match');
   b.run("S.phase='playing';S.settings.gameName='Protected';resetSetupSettings()");assert.equal(b.run('S.settings.gameName'),'Protected');
 });
+
+test('score image pagination covers every throw once at 20-row boundaries with common layout',()=>{
+  const a=teamRecordApp();
+  for(const rows of [1,20,21,40,41,101]){
+    a.run(`S.phase='finished';S.setResults=[{setNum:1,scores:[{teamId:0,score:50,members:[],throws:Array.from({length:${rows}},(_,i)=>({points:1,prevScore:i}))}]},{setNum:2,scores:[{teamId:0,score:7,members:[{id:0,name:'Longer name',active:true}],throws:Array.from({length:7},(_,i)=>({points:1,prevScore:i,memberId:0}))}]}];`);
+    const plan=a.json('scoresheetImagePlan(S)'),pages=plan.pages.filter(p=>p.sr.setNum===1);
+    assert.equal(pages.length,Math.ceil(rows/20));assert.equal(plan.rowSlots,Math.min(20,Math.max(7,rows)));
+    assert.deepEqual(pages.flatMap(p=>Array.from({length:p.end-p.start},(_,i)=>p.start+i)),Array.from({length:rows},(_,i)=>i));
+    for(const p of pages){assert.ok(p.end-p.start<=20);assert.equal(p.pageCount,pages.length);assert.ok(plan.width>=p.width+32);assert.ok(plan.nameH>=p.nameH);}
+  }
+});

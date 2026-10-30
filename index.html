@@ -190,7 +190,11 @@ input[type=text],input[type=number],select{font-size:16px;min-height:44px;}
 .sheet-burst{background:#fffbeb;color:#b45309;}
 .sheet-navigation{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px;}
 .sheet-game-name{font-weight:700;overflow-wrap:anywhere;}
-.current-member{font-size:17px;font-weight:800;margin-bottom:8px;overflow-wrap:anywhere;}
+.turn-header{height:49px;box-sizing:border-box;}
+.turn-heading{display:flex;align-items:center;gap:6px;flex:1;min-width:0;height:28px;white-space:nowrap;}
+.turn-team{min-width:0;overflow:hidden;text-overflow:ellipsis;}
+.turn-member{flex:0 1 auto;min-width:0;max-width:45%;overflow:hidden;text-overflow:ellipsis;border-radius:999px;padding:3px 8px;background:#eaf4ee;color:#397950;font-size:12px;line-height:18px;font-weight:700;}
+.turn-number{flex-shrink:0;font-size:12px;color:#6b7280;white-space:nowrap;}
 
 /* 手動投擲タイマー */
 .throw-timer{display:grid;grid-template-columns:minmax(0,1fr) 64px 64px;align-items:center;gap:8px;padding:8px;background:#f1f5f9;border:1px solid var(--c-border);border-radius:10px;margin:8px 0 12px;}
@@ -1289,12 +1293,11 @@ function buildPlaying() {
     <button class="btn btn-gray btn-block" style="margin-bottom:8px;" onclick="openCurrentOrder()">${S.teams.some(t=>t.history.length)?'このセットをやり直す':'投擲順を変更'}</button>
 
     <div class="card">
-      <div class="card-header">
-        <span class="card-title">🎯 ${escHtml(cur.name)} の番</span>
-        <span style="margin-left:auto;font-size:13px;color:#6b7280;">ターン ${Math.floor(S.turnCount / Math.max(1, S.teams.filter(t=>!t.isEliminated).length)) + 1}</span>
+      <div class="card-header turn-header">
+        <span class="card-title turn-heading"><span class="turn-team" title="${escHtml(cur.name)}">🎯 ${escHtml(cur.name)} の番</span>${currentMember(cur)?`<span class="turn-member" title="投擲者：${escHtml(currentMember(cur).name)}">${escHtml(currentMember(cur).name)}</span>`:''}</span>
+        <span class="turn-number">ターン ${Math.floor(S.turnCount / Math.max(1, S.teams.filter(t=>!t.isEliminated).length)) + 1}</span>
       </div>
       <div class="card-body">
-        ${currentMember(cur) ? `<div class="current-member">投擲者：${escHtml(currentMember(cur).name)}</div>` : ''}
         ${buildThrowTimer()}
         <div class="pin-grid">
           ${pinBtns}
@@ -1787,17 +1790,21 @@ function undoCorrectedSet() {
   const events=recordSequence();if(!events.length)return false;
   events.pop(); applyReplayedSet(replayCurrentSet(events));return true;
 }
-// HTML表示と同じ列構成でキャンバスへ描画。横スクロール外の列・セットも含める。
-function createScoresheetCanvas(g,sets=getSheetSets(g)) {
-  if(!sets.length)throw Error('投擲記録がありません。');
-  const rowH=32, titleH=34, pad=16, gap=14, colW=42;
-  const models=sets.map(sr=>{
-    const columns=sr.scores.map(sc=>sheetColumns(sc));
-    const nameH=Math.max(88,...columns.flat().map(m=>[...m.name].length*15+20));
-    return {sr,columns,nameH,width:48+columns.reduce((n,ms)=>n+(ms.length+1)*colW,0),rows:Math.max(1,...sr.scores.map(sc=>sc.throws.length))};
-  });
-  const width=pad*2+models.reduce((n,m)=>n+m.width,0)+gap*(models.length-1);
-  const height=100+Math.max(...models.map(m=>titleH+rowH+m.nameH+(m.rows+1)*rowH))+pad+24;
+// 全画像を共通サイズにそろえ、各チームの投擲番号を20行ずつ区切る。
+function scoresheetImagePlan(g) {
+  const sets=getSheetSets(g);if(!sets.length)throw Error('投擲記録がありません。');
+  const models=sets.map(sr=>{const columns=sr.scores.map(sc=>sheetColumns(sc));return {sr,columns,
+    width:48+columns.reduce((n,ms)=>n+(ms.length+1)*42,0),
+    nameH:Math.max(88,...columns.flat().map(m=>[...m.name].length*15+20)),
+    rows:Math.max(1,...sr.scores.map(sc=>sc.throws.length))};});
+  const rowSlots=Math.min(20,Math.max(...models.map(m=>m.rows))),nameH=Math.max(...models.map(m=>m.nameH));
+  const width=32+Math.max(...models.map(m=>m.width)),height=100+34+32+nameH+(rowSlots+1)*32+40;
+  const pages=models.flatMap(m=>Array.from({length:Math.ceil(m.rows/20)},(_,i)=>({...m,start:i*20,end:Math.min((i+1)*20,m.rows),pageNum:i+1,pageCount:Math.ceil(m.rows/20)})));
+  return {width,height,nameH,rowSlots,pages};
+}
+function createScoresheetCanvas(g,page,layout) {
+  const {width,height,nameH,rowSlots}=layout,{sr,columns,start,end,pageNum,pageCount}=page;
+  const rowH=32,titleH=34,pad=16,colW=42;
   const scale=Math.min(2,8192/width,8192/height,Math.sqrt(12000000/(width*height)));
   if(scale<0.3)throw Error('記録が多いため1枚の画像に収まりません。');
   const canvas=document.createElement('canvas');canvas.width=Math.ceil(width*scale);canvas.height=Math.ceil(height*scale);
@@ -1811,22 +1818,24 @@ function createScoresheetCanvas(g,sets=getSheetSets(g)) {
   c.fillStyle='#1A2332';c.font='bold 20px -apple-system,sans-serif';c.textAlign='left';c.fillText('SÖスコア · スコアシート',pad,30);
   c.font='14px -apple-system,sans-serif';c.fillText(g.settings?.gameName||g.gameName||'',pad,55,width-pad*2);
   c.font='12px -apple-system,sans-serif';c.fillText(regulationLabel(g.settings)+' · '+(g.startedAt?new Date(g.startedAt).toLocaleDateString('ja-JP'):''),pad,78);
-  let x=pad;
-  models.forEach(m=>{
-    const {sr,columns,nameH}=m;let y=100;
-    cell(x,y,m.width,titleH,`セット ${sr.setNum}${sr.inProgress?'（進行中）':''}`,'#f1f5f9');y+=titleH;
-    cell(x,y,48,rowH,'');let tx=x+48;
-    sr.scores.forEach((sc,i)=>{const ci=g.teams.find(t=>t.id===sc.teamId)?.colorIdx??sc.teamId;cell(tx,y,(columns[i].length+1)*colW,rowH,sc.teamName||g.teams.find(t=>t.id===sc.teamId)?.name||'',LIGHT_COLORS[ci%COLORS.length]);tx+=(columns[i].length+1)*colW;});y+=rowH;
-    cell(x,y,48,nameH,'投');tx=x+48;
-    columns.forEach(ms=>{ms.forEach(mem=>{cell(tx,y,colW,nameH,'','#f8fafc');[...mem.name].forEach((ch,k)=>{c.fillStyle='#1A2332';c.font='13px -apple-system,\"Noto Sans CJK JP\",sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(ch,tx+colW/2,y+16+k*15);});tx+=colW;});cell(tx,y,colW,nameH,'計','#f1f5f9');tx+=colW;});y+=nameH;
-    for(let hi=0;hi<m.rows;hi++){
-      cell(x,y,48,rowH,hi+1,'#f8fafc');tx=x+48;
-      sr.scores.forEach((sc,i)=>{const h=sc.throws[hi];columns[i].forEach(mem=>{const own=h&&(h.memberId??null)===mem.id;cell(tx,y,colW,rowH,own?(h.points===0?'ミス':h.points+(h.burst?'*':'')):'',own&&h.points===0?'#fef2f2':'#fff',own&&h.burst?'#b45309':'#1A2332');tx+=colW;});cell(tx,y,colW,rowH,h?scoreAfter(h,sheetGoal(g,sr),g.settings.regMode==='uniform'):'','#f8fafc');tx+=colW;});y+=rowH;
-    }
-    cell(x,y,48,rowH,'結果','#f1f5f9');tx=x+48;
-    sr.scores.forEach((sc,i)=>{const w=(columns[i].length+1)*colW;cell(tx,y,w,rowH,`${sc.eliminated?'脱落 · ':''}${sc.score}点${sr.winnerId===sc.teamId?' ★':''}`,'#f1f5f9');tx+=w;});
-    x+=m.width+gap;
-  });
+  const x=pad;let y=100;
+  const label=`セット ${sr.setNum}${sr.inProgress?'（進行中）':''}${pageCount>1?` · ${pageNum}/${pageCount}（${start+1}〜${end}投）`:''}`;
+  cell(x,y,page.width,titleH,label,'#f1f5f9');y+=titleH;
+  cell(x,y,48,rowH,'');let tx=x+48;
+  sr.scores.forEach((sc,i)=>{const ci=g.teams.find(t=>t.id===sc.teamId)?.colorIdx??sc.teamId;cell(tx,y,(columns[i].length+1)*colW,rowH,sc.teamName||g.teams.find(t=>t.id===sc.teamId)?.name||'',LIGHT_COLORS[ci%COLORS.length]);tx+=(columns[i].length+1)*colW;});y+=rowH;
+  cell(x,y,48,nameH,'投');tx=x+48;
+  columns.forEach(ms=>{ms.forEach(mem=>{cell(tx,y,colW,nameH,'','#f8fafc');[...mem.name].forEach((ch,k)=>{c.fillStyle='#1A2332';c.font='13px -apple-system,"Noto Sans CJK JP",sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(ch,tx+colW/2,y+16+k*15);});tx+=colW;});cell(tx,y,colW,nameH,'計','#f1f5f9');tx+=colW;});y+=nameH;
+  for(let row=0;row<rowSlots;row++){
+    const hi=start+row,visible=hi<end;
+    cell(x,y,48,rowH,visible?hi+1:'','#f8fafc');tx=x+48;
+    sr.scores.forEach((sc,i)=>{const h=visible?sc.throws[hi]:null;columns[i].forEach(mem=>{const own=h&&(h.memberId??null)===mem.id;cell(tx,y,colW,rowH,own?(h.points===0?'ミス':h.points+(h.burst?'*':'')):'',own&&h.points===0?'#fef2f2':'#fff',own&&h.burst?'#b45309':'#1A2332');tx+=colW;});cell(tx,y,colW,rowH,h?scoreAfter(h,sheetGoal(g,sr),g.settings.regMode==='uniform'):'','#f8fafc');tx+=colW;});y+=rowH;
+  }
+  const lastPage=pageNum===pageCount;
+  cell(x,y,48,rowH,lastPage?'結果':'途中','#f1f5f9');tx=x+48;
+  sr.scores.forEach((sc,i)=>{const w=(columns[i].length+1)*colW,h=sc.throws[Math.min(end,sc.throws.length)-1];
+    const score=lastPage?sc.score:h?scoreAfter(h,sheetGoal(g,sr),g.settings.regMode==='uniform'):(sr.startScores?.find(t=>t.teamId===sc.teamId)?.score??sc.score);
+    const eliminated=sc.eliminated&&(lastPage||end>=sc.throws.length);
+    cell(tx,y,w,rowH,`${eliminated?'脱落 · ':''}${score}点${lastPage&&sr.winnerId===sc.teamId?' ★':''}`,'#f1f5f9');tx+=w;});
   c.fillStyle='#6B7A8D';c.font='12px -apple-system,sans-serif';c.textAlign='left';c.fillText('*：目標点超過（バースト）',pad,height-12);
   return canvas;
 }
@@ -1842,16 +1851,15 @@ async function saveScoresheet(historyIdx=-1) {
   buttons.forEach(b=>b.disabled=true);
   let canvas;
   try {
-    const game=historyIdx<0?S:S.history[historyIdx],sets=getSheetSets(game);
-    if(!sets.length)throw Error('投擲記録がありません。');
+    const game=historyIdx<0?S:S.history[historyIdx],layout=scoresheetImagePlan(game);
     if(status)status.textContent='セットごとの画像を作成しています…';
     const date=new Date(game.startedAt||Date.now());
     const prefix=`scoresheet_${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
     const files=[];
-    for(const set of sets){
-      canvas=createScoresheetCanvas(game,[set]);
+    for(const page of layout.pages){
+      canvas=createScoresheetCanvas(game,page,layout);
       const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('画像の生成に失敗しました。')),'image/png'));
-      files.push(new File([blob],`${prefix}_set-${set.setNum}.png`,{type:'image/png'}));
+      files.push(new File([blob],`${prefix}_set-${page.sr.setNum}${page.pageCount>1?`_page-${page.pageNum}`:''}.png`,{type:'image/png'}));
       canvas.width=0;canvas.height=0;canvas=null;
     }
     const canShare=!!(navigator.share&&navigator.canShare?.({files}));
@@ -1861,7 +1869,7 @@ async function saveScoresheet(historyIdx=-1) {
       const actions=document.createElement('span');actions.style.cssText='display:flex;flex-wrap:wrap;gap:8px;margin-top:8px';
       function action(label,fn){const b=document.createElement('button');b.className='btn btn-gray btn-sm';b.textContent=label;b.onclick=fn;actions.append(b);}
       if(canShare)action('画像をまとめて共有',shareFiles);
-      files.forEach((file,i)=>action(`セット${sets[i].setNum}を保存`,()=>downloadSheetBlob(file,file.name)));
+      files.forEach((file,i)=>{const page=layout.pages[i];action(`セット${page.sr.setNum}${page.pageCount>1?`（${page.pageNum}/${page.pageCount}）`:''}を保存`,()=>downloadSheetBlob(file,file.name));});
       status.append(actions);
     }
     async function shareFiles(){

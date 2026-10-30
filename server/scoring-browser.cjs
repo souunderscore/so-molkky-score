@@ -41,6 +41,17 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=r
     await b.getByRole('button',{name:'設定と操作',exact:true}).click();await b.screenshot({path:'/tmp/molkky-compact-menu.png'});assert.equal(await b.getByRole('link',{name:'管理者メニュー',exact:true}).isVisible(),true);assert.equal(await b.getByRole('button',{name:'この端末の従来の試合を引き継ぐ',exact:true}).count(),0);await b.keyboard.press('Escape');await b.waitForFunction(()=>!document.getElementById('operations-menu').open&&document.getElementById('operations-toggle').getAttribute('aria-expanded')==='false');assert.equal(await b.getByRole('button',{name:'設定と操作',exact:true}).getAttribute('aria-expanded'),'false');
     await b.evaluate(()=>{S.teams[0].members=[{id:0,name:'Member A',active:true}];S.settings.regMode='match';S.settings.regN=2;saveState();render();});await settled(b);
     await b.getByRole('button',{name:'試合開始 🎯',exact:true}).click();await settled(b);
+    for(const width of [320,390,768]){
+      await b.setViewportSize({width,height:844});
+      const positions=await b.evaluate(()=>{
+        const oldIdx=S.currentTeamIdx,oldName=S.teams[0].members[0].name;
+        S.teams[0].members[0].name='Very long member name that must remain on one line';
+        const result=[0,1].map(i=>{S.currentTeamIdx=i;render();const pin=document.querySelector('.pin-grid').getBoundingClientRect(),header=document.querySelector('.turn-header').getBoundingClientRect();return{top:pin.top,header:header.height,overflow:document.documentElement.scrollWidth>innerWidth+1}});
+        S.currentTeamIdx=oldIdx;S.teams[0].members[0].name=oldName;render();return result;
+      });
+      assert.equal(positions[0].top,positions[1].top);assert.equal(positions[0].header,positions[1].header);assert.equal(positions.some(p=>p.overflow),false);
+      await b.locator('.turn-header').screenshot({path:'/tmp/molkky-turn-header-'+width+'.png'});
+    }
     for(const points of [12,1,12,1,12,1,12,1,2]){await b.getByRole('button',{name:String(points),exact:true}).click();await settled(b);}
     assert.equal(await b.evaluate(()=>S.phase),'set_finished');
     for(const width of [320,390,768]){
@@ -67,6 +78,32 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=r
     await b.evaluate(()=>{_sheetOpen=true;_sheetHistoryIdx=-1;render();});
     await b.getByRole('button',{name:'全セットを画像で保存・共有',exact:true}).click();await b.getByRole('button',{name:'セット2を保存',exact:true}).waitFor();
     await b.evaluate(()=>{_sheetOpen=false;render();});
+    const paged=await b.evaluate(async()=>{
+      const game=JSON.parse(JSON.stringify(S)),first=game.setResults[0];
+      first.scores[0].throws=Array.from({length:41},(_,i)=>({points:1,prevScore:i,scoreAfter:i+1,memberId:0}));first.scores[0].score=41;
+      first.scores[1].throws=first.scores[1].throws.slice(0,2);first.scores[1].score=2;
+      const layout=scoresheetImagePlan(game),original=CanvasRenderingContext2D.prototype.fillText,draws=[];
+      try{
+        for(const page of layout.pages){const texts=[];CanvasRenderingContext2D.prototype.fillText=function(t,...args){texts.push(String(t));return original.call(this,t,...args)};
+          const c=createScoresheetCanvas(game,page,layout);draws.push({size:[c.width,c.height],set:page.sr.setNum,page:page.pageNum,texts,png:c.toDataURL().split(',')[1]});c.width=c.height=0;}
+      }finally{CanvasRenderingContext2D.prototype.fillText=original;}
+      return draws;
+    });
+    fs.writeFileSync('/tmp/molkky-page-first.png',Buffer.from(paged[0].png,'base64'));fs.writeFileSync('/tmp/molkky-page-last.png',Buffer.from(paged[2].png,'base64'));
+    assert.equal(paged.length,4);for(const p of paged)assert.deepEqual(p.size,paged[0].size);
+    assert.ok(paged[0].texts.includes('途中')&&paged[0].texts.includes('20点'));
+    assert.ok(paged[1].texts.includes('21')&&paged[1].texts.includes('40')&&paged[1].texts.includes('40点'));assert.equal(paged[1].texts.includes('41'),false);
+    assert.ok(paged[2].texts.includes('41')&&paged[2].texts.includes('結果')&&paged[2].texts.some(t=>t.startsWith('41点')));
+    await b.evaluate(async()=>{
+      const game=JSON.parse(JSON.stringify(S));game.setResults[0].scores[0].throws=Array.from({length:41},(_,i)=>({points:1,prevScore:i,scoreAfter:i+1,memberId:0}));game.setResults[0].scores[0].score=41;
+      const oldHistory=S.history;S.history=[game];
+      Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>true});
+      Object.defineProperty(navigator,'share',{configurable:true,value:async({files})=>{window.pagedFiles=await Promise.all(files.map(async f=>{const bytes=new Uint8Array(await f.arrayBuffer()),v=new DataView(bytes.buffer);return {name:f.name,width:v.getUint32(16),height:v.getUint32(20)}}));}});
+      try{await saveScoresheet(0);}finally{S.history=oldHistory;}
+    });
+    const pagedFiles=await b.evaluate(()=>window.pagedFiles);assert.equal(pagedFiles.length,4);
+    assert.deepEqual(pagedFiles.map(f=>f.name.split('_set-')[1]),['1_page-1.png','1_page-2.png','1_page-3.png','2.png']);
+    for(const f of pagedFiles)assert.deepEqual([f.width,f.height],[pagedFiles[0].width,pagedFiles[0].height]);
     const carry=await b.evaluate(()=>({settings:S.settings,teams:S.initialOrder.map(id=>{const t=S.teams.find(t=>t.id===id);return{name:t.name,members:t.members||[]}}),history:S.history}));
     await b.getByRole('button',{name:'新しい試合',exact:true}).click();await settled(b);assert.equal(await b.evaluate(()=>S.phase),'setup');assert.deepEqual(await b.evaluate(()=>S.settings),carry.settings);assert.deepEqual(await b.evaluate(()=>S.teams.map(t=>({name:t.name,members:t.members||[]}))),carry.teams);
     await b.reload();await b.waitForFunction(()=>stream.canEdit());assert.deepEqual(await b.evaluate(()=>S.history),carry.history);
