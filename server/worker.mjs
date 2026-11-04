@@ -4,7 +4,7 @@ import {adminHtml} from './admin-ui.mjs';
 import {Scoring} from './scoring-core.mjs';
 import * as preview from './preview-assets.mjs';
 const safeErrors=new Set(['NOT_CONFIGURED','DB_PERMISSION_DENIED','MANAGEMENT_LOGIN_REQUIRED','SETUP_NOT_ALLOWED','ALREADY_INITIALIZED','SETUP_IN_PROGRESS','NOT_INITIALIZED','RATE_LIMITED','INVALID_CREDENTIAL','AUTH_UNAVAILABLE','ACCOUNT_CREATE_FAILED','PASSCODE_FORMAT','QUESTION_FORMAT','ANSWER_FORMAT','STALE_AUTH','CONFLICT_RETRY','COMMIT_UNKNOWN','LINK_NAME_FORMAT','LINK_NOT_FOUND','LINK_DISCARDED','LINK_DISABLED','LINK_LIMIT','INPUT_NOT_READY']);
-for(const code of ['HOME_LINK_FIXED','INPUT_LINK_INVALID','CLIENT_UPDATE_REQUIRED','SCORE_CONFLICT','INVALID_SCORE','SCORE_TOO_LARGE','MATCH_LIMIT','MATCH_NOT_FOUND','CONTROL_TOO_LARGE'])safeErrors.add(code);
+for(const code of ['INPUT_NAME_FORMAT','INPUT_NAME_USED','INPUT_NAME_FIXED','HOME_LINK_FIXED','INPUT_LINK_INVALID','CLIENT_UPDATE_REQUIRED','SCORE_CONFLICT','INVALID_SCORE','SCORE_TOO_LARGE','MATCH_LIMIT','MATCH_NOT_FOUND','CONTROL_TOO_LARGE'])safeErrors.add(code);
 async function jsonBody(request,limit=8192){const reader=request.body?.getReader();if(!reader)throw Error('INVALID_BODY');let size=0,chunks=[];for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>limit){await reader.cancel();throw Error('INVALID_BODY');}chunks.push(value);}const all=new Uint8Array(size);let at=0;for(const chunk of chunks){all.set(chunk,at);at+=chunk.length;}return JSON.parse(new TextDecoder().decode(all));}
 export default{
   async fetch(request,env){
@@ -27,7 +27,7 @@ export default{
       const token=(request.headers.get('Authorization')||'').replace(/^Bearer /,'');
       const path=url.pathname.slice(5),body=request.method==='POST'?await jsonBody(request,url.pathname.startsWith('/api/input/')?480000:8192):{};
       const scoring=new Scoring(store,management);
-      const inputMatch=path.match(/^input\/([0-9a-f-]{36})\/(inspect|save|new|archive)$/);
+      const inputMatch=path.match(/^input\/([a-zA-Z0-9-]{1,36})\/(inspect|save|new|archive)$/);
       if(request.method==='POST'&&inputMatch){
         if(env.INPUT_ENABLED!=='true')throw Error('INPUT_NOT_READY');
         const [,id,operation]=inputMatch;
@@ -50,7 +50,7 @@ export default{
       if(request.method==='POST'&&path==='admin/hide')return reply(await management.hide(token));
       if(request.method==='POST'&&path==='admin/password')return reply(await management.rotate('admin',body.current,body.next,null,token));
       if(request.method==='POST'&&path==='admin/question')return reply(await management.rotate('recovery',body.current,body.next,body.question,token));
-      const match=path.match(/^admin\/links\/([0-9a-f-]{36})\/(url|enable|disable|discard|select|rename)$/);
+      const match=path.match(/^admin\/links\/([0-9a-f-]{36})\/(url|enable|disable|discard|select|rename|set-input-name)$/);
       if(match){if(request.method==='GET'&&match[2]==='url')return reply(await management.linkUrl(token,match[1]));if(request.method==='POST'&&match[2]!=='url')return reply(await management.editLink(token,match[1],match[2],body));}
       return reply({error:'NOT_FOUND'},404);
     }catch(error){const code=safeErrors.has(error.message)?error.message:'SERVICE_UNAVAILABLE';return reply({error:code},code==='MANAGEMENT_LOGIN_REQUIRED'||code==='INVALID_CREDENTIAL'?401:code==='RATE_LIMITED'?429:code==='SERVICE_UNAVAILABLE'||code==='DB_PERMISSION_DENIED'||code==='NOT_CONFIGURED'||code==='COMMIT_UNKNOWN'?503:400);}

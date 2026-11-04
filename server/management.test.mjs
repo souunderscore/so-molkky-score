@@ -23,29 +23,29 @@ test('initial setup requires unexpired secret and can run only once',async()=>{
   assert.equal((await f.m.status()).initialized,true);assert.ok(!JSON.stringify(f.store.value).includes('123456'));
 });
 test('multiple enabled links remain independent and selection is retained',async()=>{
-  const{m,token}=await ready();const a=await m.editLink(token,null,'create',{name:'A'}),b=await m.editLink(token,null,'create',{name:'B'});
+  const{m,token}=await ready();const a=await m.editLink(token,null,'create',{name:'A',inputName:'test-a'}),b=await m.editLink(token,null,'create',{name:'B',inputName:'test-b'});
   assert.equal(a.enabled,false);await m.editLink(token,a.id,'enable');await m.editLink(token,b.id,'enable');await m.editLink(token,a.id,'select');
   const list=await m.list(token);assert.equal(list.links.filter(l=>l.enabled&&!l.fixed).length,2);assert.equal(list.selectedLink,a.id);
-  assert.ok(!JSON.stringify(list).includes('capability'));const url=await m.linkUrl(token,a.id);assert.match(url.url,/#key=[a-f0-9]{64}$/);
+  assert.ok(!JSON.stringify(list).includes('capability'));const url=await m.linkUrl(token,a.id);assert.equal(url.url,'https://score.test/index.html?input=test-a');
 });
 test('disable freezes selection; discard removes the link and clears its display selection',async()=>{
-  const{m,token}=await ready();const l=await m.editLink(token,null,'create',{name:'A'});await m.editLink(token,l.id,'enable');await m.editLink(token,l.id,'select');
+  const{m,token}=await ready();const l=await m.editLink(token,null,'create',{name:'A',inputName:'test-a'});await m.editLink(token,l.id,'enable');await m.editLink(token,l.id,'select');
   await m.editLink(token,l.id,'disable');assert.equal((await m.list(token)).selectedLink,l.id);
   await m.editLink(token,l.id,'enable');await m.editLink(token,l.id,'discard');await assert.rejects(m.editLink(token,l.id,'enable'),/LINK_NOT_FOUND/);
   const list=await m.list(token);assert.equal(list.selectedLink,null);assert.equal(list.hidden,true);assert.equal(list.links.some(x=>x.id===l.id),false);await m.editLink(token,l.id,'discard');
 });
 test('repeated enable does not revoke owner, actual disable invalidates generation',async()=>{
-  const{m,token,store}=await ready();const l=await m.editLink(token,null,'create',{name:'A'});await m.editLink(token,l.id,'enable');
+  const{m,token,store}=await ready();const l=await m.editLink(token,null,'create',{name:'A',inputName:'test-a'});await m.editLink(token,l.id,'enable');
   const generation=store.value.links[l.id].generation;store.value.links[l.id].owner='input-owner';await m.editLink(token,l.id,'enable');
   assert.equal(store.value.links[l.id].owner,'input-owner');assert.equal(store.value.links[l.id].generation,generation);
   await m.editLink(token,l.id,'disable');assert.equal(store.value.links[l.id].owner,null);assert.equal(store.value.links[l.id].generation,generation+1);
 });
 test('unauthorized session cannot list, reveal or modify links',async()=>{
-  const{m,token}=await ready();const l=await m.editLink(token,null,'create',{name:'A'});
+  const{m,token}=await ready();const l=await m.editLink(token,null,'create',{name:'A',inputName:'test-a'});
   for(const operation of [()=>m.list('bad'),()=>m.linkUrl('bad',l.id),()=>m.editLink('bad',l.id,'enable'),()=>m.hide('bad')])await assert.rejects(operation(),/MANAGEMENT_LOGIN_REQUIRED/);
 });
 test('input URLs cannot be shared before scoring integration is enabled',async()=>{
-  const{m,token}=await ready();const l=await m.editLink(token,null,'create',{name:'A'});m.config.inputReady=false;
+  const{m,token}=await ready();const l=await m.editLink(token,null,'create',{name:'A',inputName:'test-a'});m.config.inputReady=false;
   assert.equal((await m.list(token)).inputReady,false);await assert.rejects(m.linkUrl(token,l.id),/INPUT_NOT_READY/);
 });
 test('expiry and explicit logout revoke management access',async()=>{
@@ -103,7 +103,7 @@ test('Firebase REST conditional writes retry against new state instead of losing
 
 test('home is a persistent public link; management cannot disable, discard or rename it',async()=>{
   const {m,token,store}=await ready();
-  const existing=await m.editLink(token,null,'create',{name:'Existing'});await m.editLink(token,existing.id,'enable');await m.editLink(token,existing.id,'select');
+  const existing=await m.editLink(token,null,'create',{name:'Existing',inputName:'test-existing'});await m.editLink(token,existing.id,'enable');await m.editLink(token,existing.id,'select');
   const first=await m.list(token),home=first.links.find(l=>l.fixed);assert.equal(home.id,HOME_LINK_ID);assert.equal(home.enabled,true);assert.equal(home.discarded,false);assert.equal(first.selectedLink,existing.id);
   const revision=store.value.revision;await m.ensureHome();assert.equal(store.value.revision,revision);assert.equal(store.value.links[HOME_LINK_ID].capability,PUBLIC_HOME_KEY);
   for(const op of ['disable','discard','rename','enable'])await assert.rejects(m.editLink(token,HOME_LINK_ID,op,{name:'Changed'}),/HOME_LINK_FIXED/);
@@ -113,7 +113,28 @@ test('home is a persistent public link; management cannot disable, discard or re
 test('public home cannot initialize an unconfigured application',async()=>{const{m,store}=await fixture();await assert.rejects(m.ensureHome(),/INPUT_NOT_READY/);assert.equal(store.value,null);});
 
 test('legacy discarded links are purged; active links and home survive, interrupted cleanup can resume',async()=>{
- const {m,token,store}=await ready();const a=await m.editLink(token,null,'create',{name:'A'}),b=await m.editLink(token,null,'create',{name:'B'});await m.list(token);store.value.links[a.id].discarded=true;store.value.links[a.id].enabled=false;store.value.selectedLink=b.id;const selected=store.value.selectedLink;
+ const {m,token,store}=await ready();const a=await m.editLink(token,null,'create',{name:'A',inputName:'test-a'}),b=await m.editLink(token,null,'create',{name:'B',inputName:'test-b'});await m.list(token);store.value.links[a.id].discarded=true;store.value.links[a.id].enabled=false;store.value.selectedLink=b.id;const selected=store.value.selectedLink;
  const purge=store.purgeLink.bind(store);let fail=true;store.purgeLink=async id=>{if(fail){fail=false;throw Error('DB_UNAVAILABLE');}return purge(id);};await assert.rejects(m.cleanupDiscarded(),/DB_UNAVAILABLE/);assert.equal(store.value.links[a.id].deleting,true);assert.equal(store.value.links[a.id].capability,undefined);assert.equal(store.value.links[a.id].capabilityHash,undefined);
  const list=await m.list(token);assert.equal(list.links.some(l=>l.id===a.id),false);assert.equal(list.links.some(l=>l.id===b.id),true);assert.equal(list.links.some(l=>l.id===HOME_LINK_ID),true);assert.equal(list.selectedLink,selected);assert.deepEqual(store.purged,[a.id]);
+});
+
+test('URL names are unique after normalization and permanently retired on discard',async()=>{
+ const {m,token,store}=await ready();const a=await m.editLink(token,null,'create',{name:'A',inputName:' Sashimo '});
+ assert.equal(a.inputName,'sashimo');assert.equal((await m.linkUrl(token,a.id)).url,'https://score.test/index.html?input=sashimo');
+ await assert.rejects(m.editLink(token,null,'create',{name:'B',inputName:'SASHIMO'}),/INPUT_NAME_USED/);
+ await m.editLink(token,a.id,'rename',{name:'Renamed'});assert.equal((await m.linkUrl(token,a.id)).url,'https://score.test/index.html?input=sashimo');
+ await assert.rejects(m.editLink(token,a.id,'set-input-name',{inputName:'new-name'}),/INPUT_NAME_FIXED/);
+ await m.editLink(token,a.id,'discard');assert.deepEqual(store.value.inputNames.sashimo,{retired:true});assert.equal(store.value.links[a.id],undefined);
+ await assert.rejects(m.editLink(token,null,'create',{name:'C',inputName:'sashimo'}),/INPUT_NAME_USED/);
+});
+test('legacy URL names can be assigned once without rotating the existing key or generation',async()=>{
+ const {m,token,store}=await ready(),a=await m.editLink(token,null,'create',{name:'Legacy',inputName:'old-name'});
+ delete store.value.inputNames['old-name'];delete store.value.links[a.id].inputName;
+ const old=await m.linkUrl(token,a.id),before=structuredClone(store.value.links[a.id]);assert.match(old.url,/#key=/);
+ await assert.rejects(m.editLink('wrong',a.id,'set-input-name',{inputName:'test-legacy'}),/MANAGEMENT_LOGIN_REQUIRED/);
+ await m.editLink(token,a.id,'set-input-name',{inputName:'test-legacy'});
+ assert.equal((await m.linkUrl(token,a.id)).url,'https://score.test/index.html?input=test-legacy');
+ assert.equal(store.value.links[a.id].capability,before.capability);assert.equal(store.value.links[a.id].generation,before.generation);
+ for(const value of ['', 'home','a_b','a/b','a.b','あ','-a','a-','a--b','x'.repeat(33)])await assert.rejects(m.editLink(token,null,'create',{name:'Bad',inputName:value}),/INPUT_NAME_FORMAT/);
+ assert.equal((await m.editLink(token,null,'create',{name:'Safe key',inputName:'constructor'})).inputName,'constructor');
 });

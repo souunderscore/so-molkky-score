@@ -2,24 +2,24 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=r
 (async()=>{
   const {Scoring}=await import('./scoring-core.mjs'),{digest,randomToken,Management,HOME_LINK_ID}=await import('./management-core.mjs');
   const values=new Map(),db={path:'control',at(p){return{...this,path:p}},async read(){return structuredClone(values.get(this.path)||null)},async mutate(fn){const r=fn(await this.read());values.set(this.path,structuredClone(r.state));return r.reply;}};
-  const id=crypto.randomUUID(),key=randomToken();values.set('control',{initialized:true,links:{[id]:{name:'test',enabled:true,discarded:false,generation:1,capabilityHash:await digest(key)}}});
+  const id=crypto.randomUUID(),key=randomToken();values.set('control',{initialized:true,inputNames:{'test-link':{id}},links:{[id]:{name:'test',inputName:'test-link',enabled:true,discarded:false,generation:1,capabilityHash:await digest(key)}}});
   db.archiveLink=async(id,generation,key,record)=>{const l=values.get('control')?.links?.[id];if(!l?.enabled||l.discarded||l.generation!==generation)throw Error('DB_PERMISSION_DENIED');const p='archives/'+id+'/'+key;if(!values.has(p))values.set(p,structuredClone(record));};
   const core=new Scoring(db,{async authorized(t){assert.equal(t,'manager')},async ensureHome(){return new Management(db,{}, {inputReady:true}).ensureHome()}}),browser=await chromium.launch({executablePath:'/tmp/chromium',args:['--no-sandbox','--disable-gpu','--disable-dev-shm-usage']});
   const offline=new Set(),dropReply=new Set(),holdInspect=new Set(),releaseInspect=new Map(),contexts=[],errors=[];
-  async function page(width,managed=true,init=null){
+  async function page(width,managed=true,init=null,named=false){
     const context=await browser.newContext({viewport:{width,height:844}});contexts.push(context);if(init)await context.addInitScript(init);const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
     await page.route('https://score.test/**',route=>{const file=new URL(route.request().url()).pathname.endsWith('.js')?'stream-client.js':'index.html';return route.fulfill({contentType:file.endsWith('.js')?'text/javascript':'text/html',body:fs.readFileSync(path.join(__dirname,'..',file),'utf8')});});
     await page.route('https://so-molkky-score-api.sou-underscore.workers.dev/api/input/**',async route=>{
       if(offline.has(page))return route.abort('internetdisconnected');const req=route.request(),b=JSON.parse(req.postData()),op=new URL(req.url()).pathname.split('/').at(-1),requestedId=new URL(req.url()).pathname.split('/').at(-2);try{const data=op==='inspect'?await core.inspect(requestedId,b.key,b.device):await core.edit(requestedId,b.key,b.device,op,b);if(op==='inspect'&&holdInspect.has(page)){holdInspect.delete(page);await new Promise(resolve=>releaseInspect.set(page,resolve));}if(op==='save'&&dropReply.has(page)){dropReply.delete(page);return route.abort('failed');}return route.fulfill({headers:{'Access-Control-Allow-Origin':'https://score.test'},contentType:'application/json',body:JSON.stringify(data)});}catch(e){return route.fulfill({status:400,headers:{'Access-Control-Allow-Origin':'https://score.test'},contentType:'application/json',body:JSON.stringify({error:e.message})});}
     });
-    await page.goto('https://score.test/index.html'+(managed?'?input='+id+'#key='+key:''));return page;
+    await page.goto('https://score.test/index.html'+(managed?(named?'?input=test-link':'?input='+id+'#key='+key):''));return page;
   }
   const state=()=>values.get('rooms/'+id),score=()=>JSON.parse(state().current.json);
   const settled=p=>p.waitForFunction(()=>stream.ready&&!stream.busy&&!stream.hasPending());
   async function menuAction(p,label){await p.getByRole('button',{name:'設定と操作',exact:true}).click();await p.getByRole('button',{name:label,exact:true}).click();await p.waitForFunction(()=>!document.getElementById('operations-menu').open);}
   try{
     const home=await page(390,false);await home.waitForFunction(()=>stream.canEdit());assert.equal(await home.locator('#input-role').count(),0);
-    const a=await page(390),b=await page(768);await a.waitForFunction(()=>stream.canEdit());await b.waitForFunction(()=>stream.canEdit());
+    const a=await page(390),b=await page(768,true,null,true);await a.waitForFunction(()=>stream.canEdit());await b.waitForFunction(()=>stream.canEdit());
     await a.locator('#team-name-0').fill('Draft A');await a.locator('#team-name-1').fill('相手');await a.locator('#team-name-0').blur();await settled(a);
     await b.evaluate(()=>stream.refresh());assert.equal(await b.locator('#team-name-0').inputValue(),'Draft A');
     await a.getByRole('button',{name:'試合開始 🎯',exact:true}).click();await settled(a);await b.evaluate(()=>stream.refresh());

@@ -24,7 +24,7 @@ test('real Database rules: private control, public selection, selected display o
   const install=await fetch(base+'/.settings/rules.json?ns='+ns,{method:'PUT',headers:{Authorization:'Bearer owner','Content-Type':'application/json'},body:JSON.stringify(rules)});assert.equal(install.status,200,await install.text());
   await fetch(base+'/.json?ns='+ns,{method:'DELETE',headers:{Authorization:'Bearer owner'}});
   const id=crypto.randomUUID(),other=crypto.randomUUID(),key=randomToken();
-  const seed={initialized:true,epoch:1,links:{[id]:{name:'a',enabled:true,discarded:false,generation:1,capabilityHash:await digest(key)},[other]:{name:'b',enabled:true,discarded:false,generation:1,capabilityHash:await digest(randomToken())}},selectedLink:id,hidden:false};
+  const seed={initialized:true,epoch:1,inputNames:{'test-link':{id}},links:{[id]:{inputName:'test-link',name:'a',enabled:true,discarded:false,generation:1,capabilityHash:await digest(key)},[other]:{name:'b',enabled:true,discarded:false,generation:1,capabilityHash:await digest(randomToken())}},selectedLink:id,hidden:false};
   assert.equal((await request('/stream_v1/control','PUT',seed,uid)).status,200);
   assert.equal((await request('/stream_v1/control')).status,401);assert.equal((await request('/stream_v1/control/selectedLink')).status,200);
   assert.equal((await request('/stream_v1/control','GET',undefined,'pretend-manager')).status,401);
@@ -33,11 +33,15 @@ test('real Database rules: private control, public selection, selected display o
   // A real round trip removes empty collections; list must still work.
   const sessionHash=await digest('manager-session');await request('/stream_v1/control/sessions','PUT',{[sessionHash]:{epoch:1,expires:Date.now()+60000}},uid);
   const manager=new Management(store,{},{});assert.equal((await manager.list('manager-session')).links.length,2);
+  const names=await Promise.allSettled([1,2].map(i=>manager.editLink('manager-session',null,'create',{name:'Race '+i,inputName:'race-name'})));
+  assert.equal(names.filter(r=>r.status==='fulfilled').length,1);assert.equal(names.find(r=>r.status==='rejected').reason.message,'INPUT_NAME_USED');
+  const namedId=names.find(r=>r.status==='fulfilled').value.id;await manager.editLink('manager-session',namedId,'discard');
+  await assert.rejects(manager.editLink('manager-session',null,'create',{name:'Reuse',inputName:'race-name'}),/INPUT_NAME_USED/);
   const scoring=new Scoring(store,manager),a=randomToken(),b=randomToken();
   const device=a,info=await scoring.inspect(id,key,device);assert.equal(info.editingMode,'shared');const teams=[{id:0,name:'A',score:0,history:[]}];
   const input={generation:info.generation,opId:crypto.randomUUID(),matchId:crypto.randomUUID(),version:null,json:JSON.stringify({phase:'playing',settings:{},teams,history:[],setResults:[]}),viewJson:JSON.stringify({phase:'playing',teams})};
   const saved=await scoring.edit(id,key,device,'new',input);assert.equal(saved.current.version,1);
-  const parallel=await Promise.allSettled([a,b].map(device=>scoring.edit(id,key,device,'save',{...input,version:1,opId:crypto.randomUUID()})));
+  const parallel=await Promise.allSettled([a,b].map((device,i)=>scoring.edit(i?'test-link':id,key,device,'save',{...input,version:1,opId:crypto.randomUUID()})));
   assert.equal(parallel.filter(r=>r.status==='fulfilled').length,1);assert.equal(parallel.find(r=>r.status==='rejected').reason.message,'SCORE_CONFLICT');
   assert.equal((await request('/stream_v1/rooms/'+id)).status,401);assert.equal((await request('/stream_v1/rooms/'+id+'/current/json')).status,401);
   assert.equal((await request('/stream_v1/rooms/'+id+'/current/viewJson')).status,200);assert.equal((await request('/stream_v1/rooms/'+other+'/current/viewJson')).status,401);
@@ -49,14 +53,14 @@ test('real Database rules: private control, public selection, selected display o
   assert.equal((await request('/stream_v1/rooms/'+id,'PUT',current,uid)).status,401);
   await assert.rejects(scoring.edit(id,key,b,'save',{...input,version:2,opId:crypto.randomUUID()}),/SCORE_CONFLICT/);
   const latest=await scoring.inspect(id,key,b);assert.equal(latest.generation,2);assert.equal(latest.editingMode,'shared');
-  const resumed=await scoring.edit(id,key,b,'save',{...input,generation:2,version:2,opId:crypto.randomUUID()});assert.equal(JSON.parse(resumed.current.json).teams[0].history.length,0);
+  const resumed=await scoring.edit('test-link',undefined,b,'save',{...input,generation:2,version:2,opId:crypto.randomUUID()});assert.equal(JSON.parse(resumed.current.json).teams[0].history.length,0);
   const archiveKey=input.matchId+'-1';
   await store.archiveLink(id,2,archiveKey,saved.current);
-  assert.equal((await store.at('archives/'+id+'/'+archiveKey).read()).id,input.matchId);
+  assert.equal((await scoring.archive('test-link',undefined,b,archiveKey)).id,input.matchId);
   const otherBefore=await store.at('rooms/'+other).read();
   await manager.editLink('manager-session',id,'discard');
   assert.equal(await store.at('rooms/'+id).read(),null);assert.equal(await store.at('archives/'+id).read(),null);
-  const final=await store.read();assert.equal(final.links[id],undefined);assert.equal(final.selectedLink??null,null);assert.equal(final.hidden,true);assert.equal(final.links[other].enabled,true);
+  const final=await store.read();assert.deepEqual(final.inputNames['test-link'],{retired:true});assert.equal(final.links[id],undefined);assert.equal(final.selectedLink??null,null);assert.equal(final.hidden,true);assert.equal(final.links[other].enabled,true);
   assert.deepEqual(await store.at('rooms/'+other).read(),otherBefore);
   await assert.rejects(store.archiveLink(id,2,archiveKey,saved.current),/DB_PERMISSION_DENIED/);
   assert.equal(await store.at('archives/'+id).read(),null);

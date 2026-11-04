@@ -80,3 +80,16 @@ test('public home supports immediate edits from another browser without claims',
  await assert.rejects(s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,a,'save',{...snapshot,version:1,opId:crypto.randomUUID()}),/SCORE_CONFLICT/);
  assert.equal(JSON.parse((await s.inspect(HOME_LINK_ID,PUBLIC_HOME_KEY,a)).current.json).teams[0].score,9);
 });
+
+test('named URL and old secret URL edit the same room, conflict check, archive, and disabled state',async()=>{
+ const f=await fixture(),control=f.db.values.get('control'),name='test-named';control.inputNames={[name]:{id:f.id}};control.links[f.id].inputName=name;
+ const {input}=await start(f);const read=await f.s.inspect(name,undefined,f.b);assert.equal(read.current.id,input.matchId);
+ await f.s.edit(name,undefined,f.b,'save',{...input,...snap(9),version:1,opId:crypto.randomUUID()});
+ await assert.rejects(f.s.edit(f.id,f.key,f.a,'save',{...input,version:1,opId:crypto.randomUUID()}),/SCORE_CONFLICT/);
+ const next=await f.s.edit(name,undefined,f.b,'new',{...input,version:2,opId:crypto.randomUUID(),matchId:crypto.randomUUID()});
+ assert.equal(JSON.parse((await f.s.archive(name,undefined,f.b,next.history[0].key)).json).teams[0].score,9);
+ assert.equal(f.db.values.has('rooms/'+name),false);assert.equal((await f.s.inspect(f.id,f.key,f.a)).current.id,next.current.id);
+ control.links[f.id].enabled=false;await assert.rejects(f.s.inspect(name,undefined,f.a),/LINK_DISABLED/);
+ control.inputNames[name]={retired:true};await assert.rejects(f.s.inspect(name,undefined,f.a),/LINK_DISCARDED/);
+ await assert.rejects(f.s.inspect('test-unknown',undefined,f.a),/INPUT_LINK_INVALID/);
+});

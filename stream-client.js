@@ -8,7 +8,7 @@
   const random=()=>Array.from(crypto.getRandomValues(new Uint8Array(32)),n=>n.toString(16).padStart(2,'0')).join('');
   class Client{
     constructor(){
-      const u=new URL(location.href);this.id=u.searchParams.get('input')||HOME_LINK_ID;this.isHome=this.id===HOME_LINK_ID;this.active=true;this.apiBase=API;
+      const u=new URL(location.href);this.id=u.searchParams.get('input')?.toLowerCase()||HOME_LINK_ID;this.isHome=this.id===HOME_LINK_ID;this.active=true;this.apiBase=API;
       this.storageKey='molkky_stream_'+this.id;this.cacheKey=this.storageKey+'_state';this.message='接続を確認しています…';this.ready=false;this.locked=true;this.offline=false;this.busy=false;this.info=null;this.lastError=null;
       try{
         this.cache=JSON.parse(localStorage.getItem(this.storageKey)||'null')||{};

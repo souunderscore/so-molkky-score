@@ -6,15 +6,27 @@ export const PUBLIC_HOME_KEY='e94f3e189a1fc422c7aa3cfada5eb7c1bc881b442e39afa647
 const fail=code=>{throw Error(code);};
 export const randomToken=()=>Array.from(crypto.getRandomValues(new Uint8Array(32)),x=>x.toString(16).padStart(2,'0')).join('');
 export async function digest(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(value))),x=>x.toString(16).padStart(2,'0')).join('');}
-const fresh=()=>({version:1,initialized:false,revision:0,epoch:0,blocked:false,accounts:null,question:'',sessions:{},attempts:{},links:{},selectedLink:null,hidden:false,retiredAccounts:[]});
+const fresh=()=>({version:1,initialized:false,revision:0,epoch:0,blocked:false,accounts:null,question:'',sessions:{},attempts:{},links:{},inputNames:{},selectedLink:null,hidden:false,retiredAccounts:[]});
 // Realtime Database removes empty objects/arrays. Restore collections on read.
-const state=current=>({...fresh(),...current,sessions:current?.sessions||{},attempts:current?.attempts||{},links:current?.links||{},retiredAccounts:current?.retiredAccounts||[]});
+const state=current=>({...fresh(),...current,sessions:current?.sessions||{},attempts:current?.attempts||{},links:current?.links||{},inputNames:current?.inputNames||{},retiredAccounts:current?.retiredAccounts||[]});
 function clean(s,now){s.sessions=Object.fromEntries(Object.entries(s.sessions||{}).filter(([,v])=>v.expires>now&&v.epoch===s.epoch));}
 function session(s,hash,now){clean(s,now);if(!s.initialized||s.blocked||!s.sessions[hash])fail('MANAGEMENT_LOGIN_REQUIRED');}
 function passcode(input){if(typeof input!=='string'||!/^\d{6,12}$/.test(input))fail('PASSCODE_FORMAT');}
 function question(input){if(typeof input!=='string'||!input.trim()||input.trim().length>120)fail('QUESTION_FORMAT');}
 function answer(input){if(typeof input!=='string'||!input.length||enc.encode(input).length>512)fail('ANSWER_FORMAT');}
-const publicLink=(id,l)=>({id,name:l.name,enabled:l.enabled,discarded:l.discarded,createdAt:l.createdAt,hasInputOwner:!!l.owner,fixed:id===HOME_LINK_ID});
+export function inputName(value){
+  if(typeof value!=='string')fail('INPUT_NAME_FORMAT');
+  const name=value.trim().toLowerCase();
+  if(name.length>32||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)||name==='home')fail('INPUT_NAME_FORMAT');
+  return name;
+}
+function reserveInputName(s,value,id){
+  const name=inputName(value);
+  if(Object.hasOwn(s.inputNames,name))fail('INPUT_NAME_USED');
+  s.inputNames[name]={id};return name;
+}
+function retireInputName(s,l){if(l.inputName)s.inputNames[l.inputName]={retired:true};}
+const publicLink=(id,l)=>({id,name:l.name,enabled:l.enabled,discarded:l.discarded,createdAt:l.createdAt,inputName:l.inputName||null,fixed:id===HOME_LINK_ID});
 
 export class CredentialAccounts{
   constructor(env,fetchImpl=(...args)=>fetch(...args)){this.env=env;this.fetch=fetchImpl;}
@@ -81,7 +93,7 @@ export class Management{
     const existing=state(await this.store.read());let deleted=0;
     for(const [id,l]of Object.entries(existing.links)){
       if(id===HOME_LINK_ID||(!l.discarded&&!l.deleting))continue;
-      const staged=await this.store.mutate(current=>{const s=state(current),link=s.links[id],eligible=!!link&&(link.discarded||link.deleting);if(eligible){s.links[id]={enabled:true,discarded:false,generation:null,deleting:true};if(s.selectedLink===id){s.selectedLink=null;s.hidden=true;}s.revision++;}return{state:s,reply:eligible};});
+      const staged=await this.store.mutate(current=>{const s=state(current),link=s.links[id],eligible=!!link&&(link.discarded||link.deleting);if(eligible){retireInputName(s,link);s.links[id]={enabled:true,discarded:false,generation:null,deleting:true};if(s.selectedLink===id){s.selectedLink=null;s.hidden=true;}s.revision++;}return{state:s,reply:eligible};});
       if(!staged)continue;
       await this.store.purgeLink(id);deleted++;
     }
@@ -98,12 +110,13 @@ export class Management{
       if(operation==='create'){
         if(typeof input.name!=='string'||!input.name.trim()||input.name.trim().length>80)fail('LINK_NAME_FORMAT');
         if(Object.keys(s.links).length>=200)fail('LINK_LIMIT');
-        id=newId;l={name:input.name.trim(),enabled:false,discarded:false,createdAt:now,capability,capabilityHash,generation:0,owner:null,matchId:null};s.links[id]=l;
+        id=newId;const urlName=reserveInputName(s,input.inputName,id);l={inputName:urlName,name:input.name.trim(),enabled:false,discarded:false,createdAt:now,capability,capabilityHash,generation:0,owner:null,matchId:null};s.links[id]=l;
       }else{
         if(id===HOME_LINK_ID&&operation!=='select')fail('HOME_LINK_FIXED');
         if(!l){if(operation==='discard')return{state:s,reply:{id,deleted:true}};fail('LINK_NOT_FOUND');}if(l.discarded||l.deleting){if(operation==='discard')return{state:s,reply:{id,deleted:true}};fail('LINK_DISCARDED');}
         if(operation==='enable'||operation==='disable'){const enabled=operation==='enable';if(l.enabled!==enabled){l.enabled=enabled;l.owner=null;l.generation++;}}
-        else if(operation==='discard'){s.links[id]={enabled:true,discarded:false,generation:null,deleting:true};if(s.selectedLink===id){s.selectedLink=null;s.hidden=true;}s.revision++;return{state:s,reply:{id,deleted:true}};}
+        else if(operation==='discard'){retireInputName(s,l);s.links[id]={enabled:true,discarded:false,generation:null,deleting:true};if(s.selectedLink===id){s.selectedLink=null;s.hidden=true;}s.revision++;return{state:s,reply:{id,deleted:true}};}
+        else if(operation==='set-input-name'){if(l.inputName)fail('INPUT_NAME_FIXED');l.inputName=reserveInputName(s,input.inputName,id);}
         else if(operation==='rename'){if(typeof input.name!=='string'||!input.name.trim()||input.name.trim().length>80)fail('LINK_NAME_FORMAT');l.name=input.name.trim();}
         else if(operation==='select'){if(!l.enabled)fail('LINK_DISABLED');s.selectedLink=id;s.hidden=false;}
         else fail('INVALID_OPERATION');
@@ -111,7 +124,7 @@ export class Management{
       s.revision++;return{state:s,reply:publicLink(id,l)};
     });if(operation==='discard'){await this.cleanupDiscarded();}return result;
   }
-  async linkUrl(token,id){const {s}=await this.authorized(token);if(this.config.inputReady!==true)fail('INPUT_NOT_READY');const l=s.links[id];if(!l||l.discarded||l.deleting)fail('LINK_NOT_FOUND');const u=new URL(this.config.inputUrl);if(id===HOME_LINK_ID){u.search='';u.hash='';}else{u.searchParams.set('input',id);u.hash='key='+l.capability;}return{url:u.href};}
+  async linkUrl(token,id){const {s}=await this.authorized(token);if(this.config.inputReady!==true)fail('INPUT_NOT_READY');const l=s.links[id];if(!l||l.discarded||l.deleting)fail('LINK_NOT_FOUND');const u=new URL(this.config.inputUrl);if(id===HOME_LINK_ID){u.search='';u.hash='';}else if(l.inputName){u.searchParams.set('input',l.inputName);u.hash='';}else{u.searchParams.set('input',id);u.hash='key='+l.capability;}return{url:u.href};}
   async hide(token){const {hash}=await this.authorized(token),now=this.now();return this.store.mutate(current=>{const s=state(current);session(s,hash,now);s.hidden=true;s.revision++;return{state:s,reply:{hidden:true}};});}
   async rotate(role,currentInput,newInput,questionText=null,token=null){
     if(!token)fail('MANAGEMENT_LOGIN_REQUIRED');await this.authorized(token);
