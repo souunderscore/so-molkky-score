@@ -56,15 +56,8 @@ async function dashboard(){
       });}
       if(l.enabled){const select=button(main,'配信対象にする',async()=>{await api('admin/links/'+l.id+'/select',{});await dashboard();},'primary');select.disabled=data.selectedLink===l.id&&!data.hidden;}
     }
-    const options=node('details',undefined,box);options.className='link-options';node('summary','その他の操作',options);
-    const secondary=node('div',undefined,options);secondary.className='secondary-actions';
-    const pending=node('div',undefined,options);pending.className='detail-panel';
-    button(secondary,'入力担当・交代申請を確認',async()=>{
-      const p=await api('admin/links/'+l.id+'/pending');pending.replaceChildren();node('p',p.hasOwner?'入力担当あり':'入力担当なし',pending);
-      if(p.requestId&&!l.discarded&&l.enabled)button(pending,'この申請端末へ強制交代',async()=>{if(confirm('引き継げるのはサーバー保存済みの記録までです。旧端末の未送信分は引き継がれません。強制交代しますか？')){await api('admin/links/'+l.id+'/force',{requestId:p.requestId});await dashboard();}},'danger');
-      else node('p',p.requestId?'入力交代にはリンクを有効にしてください。':'現在、交代申請はありません。新しい端末から先に申請してください。',pending);
-    });
     if(l.discarded||l.fixed)continue;
+    const options=node('details',undefined,box);options.className='link-options';node('summary','その他の操作',options);
     const maintenance=node('div',undefined,options);maintenance.className='maintenance-actions';
     button(maintenance,l.enabled?'無効にする':'有効にする',async()=>{await api('admin/links/'+l.id+'/'+(l.enabled?'disable':'enable'),{});await dashboard();});
     button(maintenance,'管理名を変更',async()=>{const value=prompt('新しい管理名',l.name);if(value!==null){await api('admin/links/'+l.id+'/rename',{name:value});await dashboard();}});

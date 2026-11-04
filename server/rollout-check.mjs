@@ -40,23 +40,15 @@ if(phase==='prepare'){
   console.log(JSON.stringify({prepared:true,ruleAccess:true,backupSaved:true,fixtures:links.length}));
 }else if(phase==='test'){
   const f=await fixture(),[l,other]=f.links;
-  let a=await input(f,l.id,'claim',l.a);assert.equal(a.status,200,a.body.error);const epoch=a.body.ownerEpoch;
-  const busy=await input(f,l.id,'claim',l.b);assert.equal(busy.body.error,'INPUT_BUSY');
-  const initial={...snapshot(8),opId:crypto.randomUUID(),matchId:crypto.randomUUID(),version:null,ownerEpoch:epoch};
-  let saved=await input(f,l.id,'new',l.a,initial);assert.equal(saved.status,200,saved.body.error);
+  const initial={...snapshot(8),opId:crypto.randomUUID(),matchId:crypto.randomUUID(),version:null,generation:1};
+  const saved=await input(f,l.id,'new',l.a,initial);assert.equal(saved.status,200,saved.body.error);
   const again=await input(f,l.id,'new',l.a,initial);assert.equal(again.body.current.version,saved.body.current.version);
-  const c=await input(f,other.id,'claim',other.a);assert.equal(c.status,200,c.body.error);
-  const o=await input(f,other.id,'new',other.a,{...snapshot(12),opId:crypto.randomUUID(),matchId:crypto.randomUUID(),version:null,ownerEpoch:c.body.ownerEpoch});assert.equal(o.status,200,o.body.error);
-  const inspect=await input(f,l.id,'inspect',l.a);assert.equal(JSON.parse(inspect.body.current.json).teams[0].score,8);
-  let request=await input(f,l.id,'request',l.b);assert.equal(request.status,200,request.body.error);
-  let transfer=await input(f,l.id,'approve',l.a,{ownerEpoch:epoch,requestId:request.body.transfer.id,version:1});assert.equal(transfer.status,200,transfer.body.error);
-  let rejected=await input(f,l.id,'save',l.a,{...initial,opId:crypto.randomUUID(),version:1});assert.equal(rejected.body.error,'INPUT_OWNER_LOST');
-  const b=await input(f,l.id,'inspect',l.b);assert.equal(b.body.isOwner,true);
-  request=await input(f,l.id,'request',l.a);assert.equal(request.status,200,request.body.error);
-  transfer=await api('admin/links/'+l.id+'/force',{requestId:request.body.transfer.id},f.manager);assert.equal(transfer.status,200,transfer.body.error);
-  const current=await input(f,l.id,'inspect',l.a);assert.equal(current.body.isOwner,true);
-  const next=await input(f,l.id,'new',l.a,{...snapshot(3),opId:crypto.randomUUID(),matchId:crypto.randomUUID(),version:1,ownerEpoch:current.body.ownerEpoch});assert.equal(next.status,200,next.body.error);assert.equal(next.body.history.length,1);
-  const historical=await api('admin/links/'+l.id+'/archive',{archiveKey:next.body.history[0].key},f.manager);assert.equal(historical.status,200);assert.equal(JSON.parse(historical.body.json).teams[0].score,8);
+  const o=await input(f,other.id,'new',other.a,{...snapshot(12),opId:crypto.randomUUID(),matchId:crypto.randomUUID(),version:null,generation:1});assert.equal(o.status,200,o.body.error);
+  const inspect=await input(f,l.id,'inspect',l.b);assert.equal(inspect.body.editingMode,'shared');assert.equal(JSON.parse(inspect.body.current.json).teams[0].score,8);
+  const update=await input(f,l.id,'save',l.b,{...initial,...snapshot(9),version:1,opId:crypto.randomUUID()});assert.equal(update.status,200,update.body.error);
+  const rejected=await input(f,l.id,'save',l.a,{...initial,opId:crypto.randomUUID(),version:1});assert.equal(rejected.body.error,'SCORE_CONFLICT');
+  const next=await input(f,l.id,'new',l.a,{...snapshot(3),opId:crypto.randomUUID(),matchId:crypto.randomUUID(),version:2,generation:1});assert.equal(next.status,200,next.body.error);assert.equal(next.body.history.length,1);
+  const historical=await api('admin/links/'+l.id+'/archive',{archiveKey:next.body.history[0].key},f.manager);assert.equal(historical.status,200);assert.equal(JSON.parse(historical.body.json).teams[0].score,9);
   const denyPrivate=await fetch(env.DATABASE_URL+'/stream_v1/rooms/'+l.id+'/current/json.json');assert.equal(denyPrivate.status,401);await denyPrivate.body.cancel();
   // Select the fixture only if no user target is selected; keep it hidden and
   // restore the prior values only if our fixture is still selected.
@@ -68,7 +60,7 @@ if(phase==='prepare'){
   if(selected){const frozen=await fetch(env.DATABASE_URL+'/stream_v1/rooms/'+l.id+'/current/viewJson.json');assert.equal(frozen.status,200);assert.equal(JSON.parse(await frozen.json()).teams[0].score,3);}
   console.log(JSON.stringify({liveChecksPassed:true,linkIsolation:true,duplicateRetry:true,normalAndForcedHandoff:true,archive:true,privateReadDenied:true,disabledWriteDenied:true,publicViewTested:selected}));
 }else if(phase==='status'){
-  const f=await fixture();for(const l of f.links){const room=await store.at('rooms/'+l.id).read();console.log(JSON.stringify({roomExists:!!room,version:room?.current?.version??null,hasOwner:!!room?.owner,hasTransfer:!!room?.transfer,history:Object.keys(room?.index||{}).length}));}
+  const f=await fixture();for(const l of f.links){const room=await store.at('rooms/'+l.id).read();console.log(JSON.stringify({roomExists:!!room,version:room?.current?.version??null,history:Object.keys(room?.index||{}).length}));}
 }else if(phase==='cleanup'){
   const f=await fixture();
   // Only these recorded synthetic IDs are touched. Null generation permits

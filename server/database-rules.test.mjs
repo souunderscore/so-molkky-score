@@ -34,10 +34,11 @@ test('real Database rules: private control, public selection, selected display o
   const sessionHash=await digest('manager-session');await request('/stream_v1/control/sessions','PUT',{[sessionHash]:{epoch:1,expires:Date.now()+60000}},uid);
   const manager=new Management(store,{},{});assert.equal((await manager.list('manager-session')).links.length,2);
   const scoring=new Scoring(store,manager),a=randomToken(),b=randomToken();
-  const claims=await Promise.allSettled([scoring.edit(id,key,a,'claim'),scoring.edit(id,key,b,'claim')]);assert.equal(claims.filter(x=>x.status==='fulfilled').length,1);const device=claims[0].status==='fulfilled'?a:b;
-  const owner=await scoring.inspect(id,key,device);const teams=[{id:0,name:'A',score:0,history:[]}];
-  const input={ownerEpoch:owner.ownerEpoch,opId:crypto.randomUUID(),matchId:crypto.randomUUID(),version:null,json:JSON.stringify({phase:'playing',settings:{},teams,history:[],setResults:[]}),viewJson:JSON.stringify({phase:'playing',teams})};
+  const device=a,info=await scoring.inspect(id,key,device);assert.equal(info.editingMode,'shared');const teams=[{id:0,name:'A',score:0,history:[]}];
+  const input={generation:info.generation,opId:crypto.randomUUID(),matchId:crypto.randomUUID(),version:null,json:JSON.stringify({phase:'playing',settings:{},teams,history:[],setResults:[]}),viewJson:JSON.stringify({phase:'playing',teams})};
   const saved=await scoring.edit(id,key,device,'new',input);assert.equal(saved.current.version,1);
+  const parallel=await Promise.allSettled([a,b].map(device=>scoring.edit(id,key,device,'save',{...input,version:1,opId:crypto.randomUUID()})));
+  assert.equal(parallel.filter(r=>r.status==='fulfilled').length,1);assert.equal(parallel.find(r=>r.status==='rejected').reason.message,'SCORE_CONFLICT');
   assert.equal((await request('/stream_v1/rooms/'+id)).status,401);assert.equal((await request('/stream_v1/rooms/'+id+'/current/json')).status,401);
   assert.equal((await request('/stream_v1/rooms/'+id+'/current/viewJson')).status,200);assert.equal((await request('/stream_v1/rooms/'+other+'/current/viewJson')).status,401);
   assert.equal((await request('/stream_v1/rooms/'+id+'/current/viewJson','PUT','bad')).status,401);
@@ -46,8 +47,9 @@ test('real Database rules: private control, public selection, selected display o
   assert.equal((await request('/stream_v1/rooms/'+id+'/current/viewJson')).status,200);
   await request('/stream_v1/control/links/'+id+'/enabled','PUT',true,uid);await request('/stream_v1/control/links/'+id+'/generation','PUT',2,uid);
   assert.equal((await request('/stream_v1/rooms/'+id,'PUT',current,uid)).status,401);
-  const newOwner=await scoring.edit(id,key,b,'claim');assert.equal(newOwner.generation,2);assert.equal(newOwner.isOwner,true);
-  assert.equal(JSON.parse(newOwner.current.json).teams[0].history.length,0);
+  await assert.rejects(scoring.edit(id,key,b,'save',{...input,version:2,opId:crypto.randomUUID()}),/SCORE_CONFLICT/);
+  const latest=await scoring.inspect(id,key,b);assert.equal(latest.generation,2);assert.equal(latest.editingMode,'shared');
+  const resumed=await scoring.edit(id,key,b,'save',{...input,generation:2,version:2,opId:crypto.randomUUID()});assert.equal(JSON.parse(resumed.current.json).teams[0].history.length,0);
   const archiveKey=input.matchId+'-1';
   await store.archiveLink(id,2,archiveKey,saved.current);
   assert.equal((await store.at('archives/'+id+'/'+archiveKey).read()).id,input.matchId);

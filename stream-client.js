@@ -1,11 +1,10 @@
-/* Persistent per-link outbox. A lost owner never automatically merges its
-   pending state into a match accepted from another device. */
+/* Shared link editing with a persistent outbox and version/generation checks. */
 (function(root){
   const API='https://so-molkky-score-api.sou-underscore.workers.dev/api/';
   const HOME_LINK_ID='00000000-0000-4000-8000-000000000001';
-  // Public home identifier; ownership still requires a private device token.
+  // The fixed home and issued links share the same synchronization protocol.
   const PUBLIC_HOME_KEY='e94f3e189a1fc422c7aa3cfada5eb7c1bc881b442e39afa647be81de7b10d2ef';
-  const errors={LINK_DISABLED:'この入力リンクは無効です。',LINK_DISCARDED:'この入力リンクは廃棄されています。',INPUT_LINK_INVALID:'入力リンクを確認してください。',INPUT_OWNER_LOST:'入力担当が別の端末に交代しました。',INPUT_BUSY:'ほかの端末が入力中です。',SCORE_CONFLICT:'別の更新と重なりました。未送信の記録を確認してください。',SCORE_TOO_LARGE:'記録の容量が上限に達しました。端末に記録は残っています。',CONTROL_TOO_LARGE:'記録の容量が上限に達しました。端末に記録は残っています。',MATCH_LIMIT:'このリンクの試合数が上限に達しました。',DB_PERMISSION_DENIED:'接続設定の完了待ちです。',INPUT_NOT_READY:'入力リンクの準備中です。',HANDOFF_EXPIRED:'交代の申請が期限切れです。もう一度申請してください。'};
+  const errors={LINK_DISABLED:'この入力リンクは無効です。',LINK_DISCARDED:'この入力リンクは廃棄されています。',INPUT_LINK_INVALID:'入力リンクを確認してください。',CLIENT_UPDATE_REQUIRED:'画面を再読み込みしてください。未送信の記録は端末に残っています。',SCORE_CONFLICT:'別の端末で記録が更新されています。最新の記録を読み込んでから入力し直してください。',SCORE_TOO_LARGE:'記録の容量が上限に達しました。端末に記録は残っています。',CONTROL_TOO_LARGE:'記録の容量が上限に達しました。端末に記録は残っています。',MATCH_LIMIT:'このリンクの試合数が上限に達しました。',DB_PERMISSION_DENIED:'接続設定の完了待ちです。',INPUT_NOT_READY:'入力リンクの準備中です。'};
   const random=()=>Array.from(crypto.getRandomValues(new Uint8Array(32)),n=>n.toString(16).padStart(2,'0')).join('');
   class Client{
     constructor(){
@@ -15,6 +14,8 @@
         this.cache=JSON.parse(localStorage.getItem(this.storageKey)||'null')||{};
         this.key=this.isHome?PUBLIC_HOME_KEY:new URLSearchParams(u.hash.slice(1)).get('key')||this.cache.key;
         this.device=this.cache.device||random();this.cache.key=this.key;this.cache.device=this.device;
+        // Preserve old unsent records, including the generation they were made against.
+        if(this.cache.inflight&&this.cache.inflight.generation===undefined)this.cache.inflight.generation=this.cache.generation;
         this.persist();
         if(u.hash){history.replaceState(null,'',u.pathname+u.search);}
       }catch{this.cache={};this.storageFailed=true;this.message='端末に記録を保存できません。Safariの保存設定を確認してください。';}
@@ -27,7 +28,7 @@
       try{const r=await fetch(this.apiBase+'input/'+this.id+'/'+operation,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:this.key,device:this.device,...body}),signal:controller.signal});const d=await r.json();if(!r.ok)throw Error(d.error||'SERVICE_UNAVAILABLE');return d;}finally{clearTimeout(timer);}
     }
     statusText(){return this.message+(this.cache?.pending||this.cache?.inflight?'（未送信の記録あり）':'');}
-    applyRemote(info){this.info=info;this.cache.version=info.current?.version??null;this.cache.matchId=info.current?.id||null;this.cache.ownerEpoch=info.ownerEpoch;this.cache.generation=info.generation;this.cache.wasOwner=info.isOwner;this.cache.lastJson=info.current?.json||null;this.persist();if(info.current){localStorage.setItem(this.cacheKey,info.current.json);this.onState?.(JSON.parse(info.current.json));}}
+    applyRemote(info){this.info=info;this.cache.version=info.current?.version??null;this.cache.matchId=info.current?.id||null;this.cache.generation=info.generation;this.cache.validated=true;delete this.cache.ownerEpoch;delete this.cache.wasOwner;this.cache.lastJson=info.current?.json||null;this.persist();if(info.current){localStorage.setItem(this.cacheKey,info.current.json);this.onState?.(JSON.parse(info.current.json));}}
     hasPending(){return !!(this.cache.pending||this.cache.inflight);}
     async start(){
       if(this.storageFailed)return;
@@ -53,15 +54,14 @@
         if(this.busy||this.cache.version!==startedVersion||this.cache.lastJson!==startedJson)return;
         this.offline=false;this.lastError=null;
         if(this.cache.inflight&&info.current?.opId===this.cache.inflight.opId){this.cache.version=info.current.version;this.cache.matchId=info.current.id;this.cache.inflight=null;this.persist();}
-        if(this.hasPending()&&((this.cache.generation!==info.generation)||!info.isOwner||this.cache.ownerEpoch!==info.ownerEpoch||(this.cache.version??null)!==(info.current?.version??null))){
-          this.info=info;this.locked=true;this.ready=true;this.lastError='SCORE_CONFLICT';this.message='入力権限または試合が変わっています。未送信の記録は端末に残しました。';this.changed();return;
+        if(this.hasPending()&&((this.cache.generation!==info.generation)||(this.cache.version??null)!==(info.current?.version??null))){
+          this.info=info;this.locked=true;this.ready=true;this.lastError='SCORE_CONFLICT';this.message='別の端末で記録が更新されています。未送信の記録は端末に残しました。最新の記録を読み込んでから入力し直してください。';this.changed();return;
         }
-        this.info=info;this.ready=true;this.locked=!info.isOwner;
+        this.info=info;this.ready=true;this.locked=false;
         if(!this.hasPending())this.applyRemote(info);
-        this.message=info.isOwner?'入力担当：この端末':info.hasOwner?'閲覧中：ほかの端末が入力担当です。':'入力担当が未設定です。閲覧または入力を選べます。';
-        if(info.transfer&&!info.transfer.isRequester)this.message+=' 交代申請が届いています。';
+        this.message='同期済み';
         this.changed();
-      }catch(e){if(first&&this.cache.wasOwner&&this.cache.ownerEpoch&&!errors[e.message]){this.ready=true;this.locked=false;}this.fail(e);}
+      }catch(e){if(first&&(this.cache.validated||this.cache.wasOwner)&&this.cache.generation!==undefined&&!errors[e.message]){this.ready=true;this.locked=false;}this.fail(e);}
       finally{this.refreshing=false;}
       if(this.canEdit())await this.flush();
     }
@@ -81,30 +81,23 @@
       if(this.busy||!this.canEdit()||!this.hasPending())return;this.busy=true;
       try{
         while(this.canEdit()&&this.hasPending()){
-          if(!this.cache.inflight){this.cache.inflight={...this.cache.pending,opId:crypto.randomUUID(),matchId:this.cache.matchId||crypto.randomUUID(),version:this.cache.version??null,ownerEpoch:this.cache.ownerEpoch,operation:this.cache.matchId?'save':'new'};this.cache.pending=null;this.persist();}
+          if(!this.cache.inflight){this.cache.inflight={...this.cache.pending,opId:crypto.randomUUID(),matchId:this.cache.matchId||crypto.randomUUID(),version:this.cache.version??null,generation:this.cache.generation,operation:this.cache.matchId?'save':'new'};this.cache.pending=null;this.persist();}
           const flight=this.cache.inflight;const info=await this.api(flight.operation,flight);
-          this.cache.version=info.current.version;this.cache.matchId=info.current.id;this.cache.inflight=null;this.info=info;this.persist();this.offline=false;this.lastError=null;this.message='同期済み・入力担当：この端末';this.changed();
+          this.cache.version=info.current.version;this.cache.matchId=info.current.id;this.cache.inflight=null;this.info=info;this.persist();this.offline=false;this.lastError=null;this.message='同期済み';this.changed();
         }
       }catch(e){this.fail(e);}finally{this.busy=false;}
     }
     async newMatch(state,view,continueDraft=false){
-      if(!this.canEdit())throw Error('INPUT_OWNER_LOST');
+      if(!this.canEdit())throw Error('SCORE_CONFLICT');
       await this.flush();if(this.hasPending()||this.offline||this.busy)throw Error('UNSENT_RECORDS');
       const v={...view};delete v.updatedAt;
       const reuse=continueDraft&&this.cache.matchId;
-      this.cache.inflight={json:JSON.stringify(state),viewJson:JSON.stringify(v),opId:crypto.randomUUID(),matchId:reuse||crypto.randomUUID(),version:this.cache.version??null,ownerEpoch:this.cache.ownerEpoch,operation:reuse?'save':'new'};this.persist();
+      this.cache.inflight={json:JSON.stringify(state),viewJson:JSON.stringify(v),opId:crypto.randomUUID(),matchId:reuse||crypto.randomUUID(),version:this.cache.version??null,generation:this.cache.generation,operation:reuse?'save':'new'};this.persist();
       await this.flush();if(this.hasPending())throw Error('UNSENT_RECORDS');
-    }
-    async action(operation){
-      if(operation==='approve'){await this.flush();if(this.hasPending()||this.busy||this.offline)throw Error('UNSENT_RECORDS');}
-      const info=await this.api(operation,{ownerEpoch:this.cache.ownerEpoch,requestId:this.info?.transfer?.id,version:this.cache.version??null});
-      this.info=info;this.ready=true;this.locked=!info.isOwner;
-      if(!this.hasPending())this.applyRemote(info);
-      await this.refresh();
     }
     async discardLocal(){
       if(this.busy)return;
-      const info=await this.api('inspect');this.cache.pending=null;this.cache.inflight=null;this.cache.lastJson=null;this.applyRemote(info);this.locked=!info.isOwner;this.ready=true;this.lastError=null;this.message='サーバーに保存された記録を表示しています。';this.changed();
+      const info=await this.api('inspect');this.cache.pending=null;this.cache.inflight=null;this.cache.lastJson=null;this.applyRemote(info);this.locked=false;this.ready=true;this.lastError=null;this.message='サーバーに保存された記録を表示しています。';this.changed();
     }
     download(){const blob=new Blob([JSON.stringify({linkId:this.id,exportedAt:new Date().toISOString(),localState:this.getState?.()||localStorage.getItem(this.cacheKey),pending:this.cache.pending,inflight:this.cache.inflight},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='molkky-unsent-records.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
   }

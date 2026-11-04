@@ -16,11 +16,13 @@ class Memory{
 }
 const snap=(n=0)=>{const teams=[{id:0,name:'A',score:n,history:[]}];return {json:JSON.stringify({phase:'playing',settings:{},teams,history:[],setResults:[]}),viewJson:JSON.stringify({phase:'playing',teams})};};
 async function fixture(){const db=new Memory(),id=crypto.randomUUID(),key=randomToken(),a=randomToken(),b=randomToken();db.values.set('control',{links:{[id]:{name:'test',enabled:true,discarded:false,generation:1,capabilityHash:await digest(key)}}});const management={async authorized(token){if(token!=='manager')throw Error('MANAGEMENT_LOGIN_REQUIRED');}};return {db,id,key,a,b,s:new Scoring(db,management)};}
-async function start(f){const claimed=await f.s.edit(f.id,f.key,f.a,'claim');const input={...snap(),opId:crypto.randomUUID(),matchId:crypto.randomUUID(),version:null,ownerEpoch:claimed.ownerEpoch};return {input,result:await f.s.edit(f.id,f.key,f.a,'new',input)};}
-test('only one device can claim; link knowledge does not permit an overwrite',async()=>{
-  const f=await fixture();const results=await Promise.allSettled([f.s.edit(f.id,f.key,f.a,'claim'),f.s.edit(f.id,f.key,f.b,'claim')]);assert.equal(results.filter(x=>x.status==='fulfilled').length,1);
-  const other=(await f.s.inspect(f.id,f.key,f.b)).isOwner?f.a:f.b;
-  await assert.rejects(f.s.edit(f.id,f.key,other,'save',{...snap(),opId:crypto.randomUUID(),matchId:crypto.randomUUID()}),/INPUT_OWNER_LOST/);
+async function start(f){const input={...snap(),opId:crypto.randomUUID(),matchId:crypto.randomUUID(),version:null,generation:1};return {input,result:await f.s.edit(f.id,f.key,f.a,'new',input)};}
+test('any device with an enabled link can edit without claiming ownership',async()=>{
+  const f=await fixture(),{input}=await start(f);
+  const initial=await f.s.inspect(f.id,f.key,f.b);assert.equal(initial.editingMode,'shared');assert.equal('isOwner' in initial,false);
+  await f.s.edit(f.id,f.key,f.b,'save',{...input,...snap(8),opId:crypto.randomUUID(),version:1});
+  await f.s.edit(f.id,f.key,f.a,'save',{...input,...snap(12),opId:crypto.randomUUID(),version:2});
+  assert.equal(JSON.parse((await f.s.inspect(f.id,f.key,f.b)).current.json).teams[0].score,12);
 });
 test('save retries are idempotent; stale versions cannot undo a confirmed score',async()=>{
   const f=await fixture(),{input,result}=await start(f);
@@ -30,23 +32,25 @@ test('save retries are idempotent; stale versions cannot undo a confirmed score'
   await assert.rejects(f.s.edit(f.id,f.key,f.a,'save',{...update,opId:crypto.randomUUID()}),/SCORE_CONFLICT/);
   assert.equal(JSON.parse((await f.s.inspect(f.id,f.key,f.a)).current.json).teams[0].score,8);
 });
-test('normal handoff requires current owner approval and excludes the old owner',async()=>{
-  const f=await fixture(),{input,result}=await start(f);await f.s.edit(f.id,f.key,f.b,'request');
-  const status=await f.s.inspect(f.id,f.key,f.a);await f.s.edit(f.id,f.key,f.a,'approve',{ownerEpoch:input.ownerEpoch,requestId:status.transfer.id,version:result.current.version});
-  assert.equal((await f.s.inspect(f.id,f.key,f.b)).isOwner,true);
-  await assert.rejects(f.s.edit(f.id,f.key,f.a,'save',{...input,opId:crypto.randomUUID(),version:1}),/INPUT_OWNER_LOST/);
+test('old owner metadata has no authority; retired handoff operations cannot change data',async()=>{
+  const f=await fixture(),{input}=await start(f),r=f.db.values.get('rooms/'+f.id);
+  r.owner={hash:await digest(f.a),epoch:'old'};r.transfer={id:crypto.randomUUID(),hash:await digest(f.a)};
+  await f.s.edit(f.id,f.key,f.b,'save',{...input,...snap(9),opId:crypto.randomUUID(),version:1});
+  const saved=f.db.values.get('rooms/'+f.id);assert.equal(saved.owner,undefined);assert.equal(saved.transfer,undefined);
+  for(const op of ['claim','request','approve','cancel'])await assert.rejects(f.s.edit(f.id,f.key,f.a,op),/CLIENT_UPDATE_REQUIRED/);
 });
-test('force handoff requires management session and only transfers confirmed data',async()=>{
-  const f=await fixture();await start(f);const request=await f.s.edit(f.id,f.key,f.b,'request');
-  await assert.rejects(f.s.force('wrong',f.id,request.transfer.id),/MANAGEMENT_LOGIN_REQUIRED/);
-  await f.s.force('manager',f.id,request.transfer.id);const status=await f.s.inspect(f.id,f.key,f.b);assert.equal(status.isOwner,true);assert.equal(JSON.parse(status.current.json).teams[0].score,0);
-});
-test('disable and discard block writes, re-enable revokes the old owner epoch',async()=>{
-  const f=await fixture(),{input}=await start(f);const l=f.db.values.get('control').links[f.id];l.enabled=false;l.generation++;
+test('disable/discard block all devices; re-enable rejects stale generations',async()=>{
+  const f=await fixture(),{input}=await start(f),l=f.db.values.get('control').links[f.id];l.enabled=false;l.generation++;
   await assert.rejects(f.s.inspect(f.id,f.key,f.a),/LINK_DISABLED/);l.enabled=true;l.generation++;
-  await assert.rejects(f.s.edit(f.id,f.key,f.a,'save',{...input,version:1,opId:crypto.randomUUID()}),/INPUT_OWNER_LOST/);
-  assert.equal((await f.s.inspect(f.id,f.key,f.a)).hasOwner,false);l.discarded=true;l.enabled=false;
-  await assert.rejects(f.s.edit(f.id,f.key,f.b,'claim'),/LINK_DISCARDED/);
+  await assert.rejects(f.s.edit(f.id,f.key,f.a,'save',{...input,version:1,opId:crypto.randomUUID()}),/SCORE_CONFLICT/);
+  const info=await f.s.inspect(f.id,f.key,f.b);await f.s.edit(f.id,f.key,f.b,'save',{...input,generation:info.generation,version:1,opId:crypto.randomUUID()});
+  l.discarded=true;l.enabled=false;await assert.rejects(f.s.inspect(f.id,f.key,f.a),/LINK_DISCARDED/);
+});
+test('stale new-match requests never create archives or replace a newer score',async()=>{
+  const f=await fixture(),{input}=await start(f);await f.s.edit(f.id,f.key,f.a,'save',{...input,...snap(8),version:1,opId:crypto.randomUUID()});
+  await assert.rejects(f.s.edit(f.id,f.key,f.b,'new',{...input,version:1,matchId:crypto.randomUUID(),opId:crypto.randomUUID()}),/SCORE_CONFLICT/);
+  assert.equal([...f.db.values.keys()].some(k=>k.startsWith('archives/')),false);
+  await assert.rejects(f.s.edit(f.id,f.key,f.b,'save',{...input,generation:undefined,version:2,opId:crypto.randomUUID()}),/CLIENT_UPDATE_REQUIRED/);
 });
 test('disable during a pending write is rejected at database commit time',async()=>{
   const f=await fixture(),{input}=await start(f);f.db.hook=async path=>{if(path.startsWith('rooms/')){f.db.values.get('control').links[f.id].enabled=false;}};
@@ -68,12 +72,11 @@ test('malformed snapshots and mismatched public scores are rejected',async()=>{
   await assert.rejects(f.s.edit(f.id,f.key,f.a,'save',{...input,version:1,opId:crypto.randomUUID(),viewJson:snap(3).viewJson}),/INVALID_SCORE/);
 });
 
-test('public home uses the same exclusive ownership and handoff as issued links',async()=>{
+test('public home supports immediate edits from another browser without claims',async()=>{
  const db=new Memory();db.values.set('control',{initialized:true,links:{}});const management=new Management(db,{}, {inputReady:true}),s=new Scoring(db,management),a=randomToken(),b=randomToken();
- assert.equal((await s.inspect(HOME_LINK_ID,PUBLIC_HOME_KEY,a)).hasOwner,false);assert.equal(db.values.has('rooms/'+HOME_LINK_ID),false);
- const claimed=await s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,a,'claim');const snapshot={...snap(7),opId:crypto.randomUUID(),matchId:crypto.randomUUID(),version:null,ownerEpoch:claimed.ownerEpoch};await s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,a,'new',snapshot);
- await assert.rejects(s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,b,'claim'),/INPUT_BUSY/);await assert.rejects(s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,b,'save',{...snapshot,opId:crypto.randomUUID(),version:1}),/INPUT_OWNER_LOST/);
- const requested=await s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,b,'request');await s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,a,'approve',{requestId:requested.transfer.id,ownerEpoch:claimed.ownerEpoch,version:1});
- assert.equal((await s.inspect(HOME_LINK_ID,PUBLIC_HOME_KEY,b)).isOwner,true);assert.equal(JSON.parse((await s.inspect(HOME_LINK_ID,PUBLIC_HOME_KEY,b)).current.json).teams[0].score,7);
- await assert.rejects(s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,a,'save',{...snapshot,opId:crypto.randomUUID(),version:1}),/INPUT_OWNER_LOST/);
+ assert.equal((await s.inspect(HOME_LINK_ID,PUBLIC_HOME_KEY,a)).editingMode,'shared');assert.equal(db.values.has('rooms/'+HOME_LINK_ID),false);
+ const snapshot={...snap(7),opId:crypto.randomUUID(),matchId:crypto.randomUUID(),version:null,generation:1};await s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,a,'new',snapshot);
+ await s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,b,'save',{...snapshot,...snap(9),version:1,opId:crypto.randomUUID()});
+ await assert.rejects(s.edit(HOME_LINK_ID,PUBLIC_HOME_KEY,a,'save',{...snapshot,version:1,opId:crypto.randomUUID()}),/SCORE_CONFLICT/);
+ assert.equal(JSON.parse((await s.inspect(HOME_LINK_ID,PUBLIC_HOME_KEY,a)).current.json).teams[0].score,9);
 });
