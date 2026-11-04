@@ -2479,7 +2479,7 @@ function updateStreamControls() {
   updateOperationsMenu();if(!stream?.active)return;
   const pending=stream.hasPending(),attention=stream.storageFailed||!!stream.lastError;
   const button=(text,fn)=>{const b=document.createElement('button');b.className='btn btn-sm';b.textContent=text;b.onclick=async()=>{b.disabled=true;try{await fn();}finally{updateStreamControls();}};box.append(b);};
-  if(attention||pending){
+  if(attention){
     box.hidden=false;const text=document.createElement('span');text.textContent=stream.storageFailed?'端末に保存できません。記録を出力してください。':stream.locked?stream.message:pending?'未同期の記録があります。':stream.message;box.append(text);
     if(pending&&!stream.storageFailed)button('再接続',()=>stream.refresh());
     if(pending||stream.storageFailed)button('確認',openOperationsMenu);
