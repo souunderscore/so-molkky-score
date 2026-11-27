@@ -846,6 +846,11 @@ function getPublicState() {
       missStreak: t.missStreak,
       missCount: t.history.filter(h => h.points === 0).length,
       throwCount: t.history.length,
+      recentThrows: t.history.slice(-3).map(h => ({
+        points: h.points,
+        burst: !!h.burst,
+        scoreAfter: h.scoreAfter,
+      })),
       isEliminated: t.isEliminated,
       histLen: t.history.length,
       colorIdx: t.colorIdx !== undefined ? t.colorIdx : t.id,
