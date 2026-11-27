@@ -46,12 +46,16 @@ body {
 }
 
 /* ─── グリッド ─── */
-.teams-grid { display: flex; gap: 8px; flex-wrap: wrap; }
-.teams-grid.count-2 .team-card { flex: 1; min-width: 0; }
-.teams-grid.count-3 .team-card,
-.teams-grid.count-4 .team-card { flex: 1 1 calc(50% - 4px); min-width: 0; }
-.teams-grid.count-5 .team-card,
-.teams-grid.count-6 .team-card { flex: 1 1 calc(33.33% - 6px); min-width: 0; }
+.teams-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.teams-grid.count-5,
+.teams-grid.count-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 480px) {
+  .teams-grid.count-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 /* ─── チームカード（白ベース） ─── */
 .team-card {
@@ -82,6 +86,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 4px;
   min-height: 38px;
 }
 
@@ -93,6 +98,14 @@ body {
 /* 非アクティブ: グレー */
 .card-header.inactive-header {
   background: #E4E9EF;
+}
+
+.team-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  min-width: 0;
 }
 
 .team-name {
@@ -160,40 +173,6 @@ body {
 }
 .miss-dot.hit { background: #EF4444; }
 
-.throw-count {
-  font-size: 10px;
-  color: #8A96A3;
-  margin-top: 2px;
-}
-
-/* ─── 手番バー ─── */
-.turn-bar {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 10px;
-  margin-bottom: 10px;
-  padding: 10px 16px;
-  border-radius: 10px;
-  /* background は JS でインライン設定 */
-}
-.turn-bar .live-dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: #fff;
-  animation: blink 1.2s infinite;
-  flex-shrink: 0;
-}
-@keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.2;} }
-.turn-bar .turn-label {
-  font-size: 15px; font-weight: 900; color: #fff;
-  letter-spacing: 0.02em;
-}
-.turn-bar .turn-count {
-  font-size: 12px; color: rgba(255,255,255,0.80);
-  margin-left: auto; font-weight: 700;
-}
-
 /* ─── 試合終了時のコンパクトグリッド ─── */
 .compact-grid .score { font-size: 30px !important; margin: 1px 0 4px !important; }
 .compact-grid .score-body { padding: 4px 10px 6px !important; }
@@ -219,40 +198,39 @@ body {
   font-size: 15px; font-weight: 900; color: #fff; line-height: 1.2;
 }
 
-/* ─── 直近の投擲 ─── */
-.recent-throws {
-  margin-top: 7px;
-  padding: 7px 12px 9px;
-  background: rgba(255,255,255,0.93);
-  border-radius: 10px;
-  border: 1.5px solid rgba(0,0,0,0.07);
-  overflow-x: auto;
-  white-space: nowrap;
-}
-.recent-throws table {
-  min-width: max-content;
-}
-.recent-label {
-  font-size: 9px; font-weight: 800;
-  color: #8A96A3; letter-spacing: 0.1em;
-  text-transform: uppercase; margin-bottom: 6px;
-}
-.recent-team-row {
-  display: flex; align-items: center;
-  gap: 4px; flex-wrap: nowrap; overflow: hidden;
-}
-.recent-team-label {
-  font-size: 10px; font-weight: 800;
-  white-space: nowrap; flex-shrink: 0; min-width: 3.5em;
+/* ─── カード内の直近の投擲 ─── */
+.card-throws {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 20px;
 }
 .throw-chip {
-  display: inline-flex; align-items: center; justify-content: center;
-  padding: 2px 8px; border-radius: 20px;
-  font-size: 11px; font-weight: 800;
-  min-width: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 21px;
+  min-height: 20px;
+  padding: 1px 4px;
+  border: 1px solid var(--throw-border);
+  border-radius: 20px;
+  color: var(--throw-color);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
 }
-.throw-chip.miss-chip { background: #FEE2E2; color: #DC2626; }
-.throw-chip.burst-chip { background: #FEF3C7; color: #B45309; }
+.throw-chip.latest { background: var(--throw-fill); }
+.throw-chip.miss-chip {
+  --throw-color: #DC2626;
+  --throw-border: #FECACA;
+  --throw-fill: #FEE2E2;
+}
+.throw-chip.burst-chip {
+  --throw-color: #92400E;
+  --throw-border: #FCD34D;
+  --throw-fill: #FEF3C7;
+}
 
 /* ─── 待機中 ─── */
 .no-game {
@@ -323,29 +301,15 @@ function render(state) {
     return;
   }
 
-  const cur = state.teams[state.currentTeamIdx];
-  const curColor = cur
-    ? TEAM_COLORS[(cur.colorIdx !== undefined ? cur.colorIdx : state.currentTeamIdx) % TEAM_COLORS.length]
-    : '#FF5500';
-  const turnNum = Math.floor((state.turnCount || 0) / Math.max(1, state.teams.filter(t=>!t.isEliminated).length)) + 1;
-  const turnHtml = cur && !cur.isEliminated ? `
-    <div class="turn-bar" style="background:${curColor};">
-      <div class="live-dot"></div>
-      <div class="turn-label">▶ ${esc(cur.name)} の番</div>
-      <div class="turn-count">ターン ${turnNum}</div>
-    </div>` : '';
-
-  el.innerHTML = `
-    ${titleHtml}
-    ${turnHtml}
-    ${buildTeamsGrid(state)}
-    ${buildRecentThrows(state)}
-  `;
+  el.innerHTML = `${titleHtml}${buildTeamsGrid(state)}`;
 }
 
 function buildTeamsGrid(state) {
   const count = state.teams.length;
   const curId = state.teams[state.currentTeamIdx]?.id;
+  const activeCount = state.teams.filter(t => !t.isEliminated).length;
+  const turnNum = Math.floor((state.turnCount || 0) / Math.max(1, activeCount)) + 1;
+  const burstReset = state.regMode === 'uniform' ? state.targetScore - 25 : 25;
 
   const cards = state.teams.map((t, i) => {
     const isActive = t.id === curId && state.phase === 'playing' && !t.isEliminated;
@@ -358,7 +322,7 @@ function buildTeamsGrid(state) {
     const headerCls   = isActive ? 'active-header' : 'inactive-header';
     const nameColor   = isActive ? '#fff' : '#4A5568';
     const badgeHtml   = isActive
-      ? `<span class="active-badge">▶ 投擲中</span>` : '';
+      ? `<span class="active-badge">ターン ${turnNum}</span>` : '';
 
     // スコア: 両方チームカラーで同じ濃さ
     const scoreColor  = t.isEliminated ? '#94A3B8' : color;
@@ -367,6 +331,20 @@ function buildTeamsGrid(state) {
     const missDots = Array.from({ length: state.maxMiss || 3 }, (_, mi) =>
       `<div class="miss-dot ${mi < (t.missStreak || 0) ? 'hit' : ''}"></div>`
     ).join('');
+
+    // 旧バージョンで保存された試合では従来の共有履歴を使う
+    const recentThrows = (t.recentThrows ?? (state.recentThrows || []).filter(h => h.teamIdx === i)).slice(-3);
+    const throwChips = recentThrows.map((h, index) => {
+      const latest = index === recentThrows.length - 1 ? ' latest' : '';
+      if (h.points === 0) {
+        return `<span class="throw-chip miss-chip${latest}" title="ミス">×</span>`;
+      }
+      if (h.burst) {
+        const resetScore = Number.isFinite(h.scoreAfter) ? h.scoreAfter : burstReset;
+        return `<span class="throw-chip burst-chip${latest}" title="バースト">${esc(h.points)}→${resetScore}</span>`;
+      }
+      return `<span class="throw-chip${latest}">${esc(h.points)}</span>`;
+    }).join('');
 
     // カードのborder色
     const borderStyle = isActive
@@ -384,9 +362,9 @@ function buildTeamsGrid(state) {
       : '';
 
     return `
-      <div class="team-card ${cls}" style="${borderStyle}">
+      <div class="team-card ${cls}" style="${borderStyle}"${isActive ? ' aria-current="true"' : ''}>
         <div class="card-header ${headerCls}" style="background:${headerBg};">
-          <span style="display:flex;align-items:center;gap:2px;flex-wrap:wrap;">
+          <span class="team-heading">
             <span class="team-name" style="color:${nameColor};">${esc(t.name)}</span>
             ${setWinBadge}
             ${totalBadge}
@@ -399,78 +377,12 @@ function buildTeamsGrid(state) {
             <div class="progress-fill" style="width:${pct}%;background:${color};"></div>
           </div>
           <div class="miss-row">${missDots}</div>
-          <div class="throw-count">${t.throwCount || 0}投 / ${t.missCount || 0}ミス</div>
+          <div class="card-throws" style="--throw-color:${color};--throw-border:${color}60;--throw-fill:${color}20;"${throwChips ? ' role="group" aria-label="直近の投擲"' : ''}>${throwChips}</div>
         </div>
       </div>`;
   });
 
   return `<div class="teams-grid count-${count}">${cards.join('')}</div>`;
-}
-
-function buildRecentThrows(state) {
-  const throws = state.recentThrows;
-  if (!throws || throws.length === 0) return '';
-
-  const teams = state.teams;
-  const n = teams.length;
-
-  // チームカラーと名前
-  const teamColors = teams.map((t, i) =>
-    TEAM_COLORS[(t.colorIdx !== undefined ? t.colorIdx : i) % TEAM_COLORS.length]
-  );
-
-  // ターン番号ごとに各チームの投擲をマッピング
-  // { turnNum -> { teamIdx -> throwData } }
-  const turnMap = {};
-  throws.forEach(h => {
-    const t = h.turnNum;
-    if (!turnMap[t]) turnMap[t] = {};
-    turnMap[t][h.teamIdx] = h;
-  });
-
-  const turnNums = Object.keys(turnMap).map(Number).sort((a,b) => a-b);
-  // 常に最新5ターン分だけ表示（古いものは左に流れて消える）
-  const visibleTurns = turnNums.slice(-5);
-
-  // チームごとに1行、ターンを横に並べる転置レイアウト
-  // 左端: チーム名 | ターン1 | ターン2 | ...
-  const teamRows = teams.map((t, ti) => {
-    const color = teamColors[ti];
-    const cells = visibleTurns.map(turnNum => {
-      const h = turnMap[turnNum] && turnMap[turnNum][ti];
-      if (!h) return `<td style="text-align:center;padding:3px 5px;"><span style="color:#ccc;font-size:10px;">—</span></td>`;
-      let chip;
-      if (h.points === 0) {
-        chip = `<span class="throw-chip miss-chip">ミス</span>`;
-      } else if (h.burst) {
-        chip = `<span class="throw-chip burst-chip">${h.points}→25</span>`;
-      } else {
-        chip = `<span class="throw-chip" style="background:${color}18;color:${color};border:1.5px solid ${color}44;">${h.points}</span>`;
-      }
-      return `<td style="text-align:center;padding:3px 5px;">${chip}</td>`;
-    }).join('');
-    return `<tr>
-      <td style="padding:3px 8px 3px 0;font-size:10px;font-weight:800;color:${color};white-space:nowrap;">${esc(t.name)}</td>
-      ${cells}
-    </tr>`;
-  }).join('');
-
-  // ターン番号ヘッダー
-  const turnHeaders = visibleTurns.map(n =>
-    `<th style="text-align:center;padding:3px 5px;font-size:10px;font-weight:700;color:#8A96A3;">${n}</th>`
-  ).join('');
-
-  return `
-    <div class="recent-throws">
-      <div class="recent-label">直近の投擲</div>
-      <table style="border-collapse:collapse;">
-        <thead><tr>
-          <th style="padding:3px 8px 3px 0;font-size:10px;color:#8A96A3;font-weight:600;text-align:left;">投</th>
-          ${turnHeaders}
-        </tr></thead>
-        <tbody>${teamRows}</tbody>
-      </table>
-    </div>`;
 }
 
 // ─── 試合全体分析（試合終了時）───
