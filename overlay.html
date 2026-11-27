@@ -332,8 +332,11 @@ function buildTeamsGrid(state) {
       `<div class="miss-dot ${mi < (t.missStreak || 0) ? 'hit' : ''}"></div>`
     ).join('');
 
-    // 旧バージョンで保存された試合では従来の共有履歴を使う
-    const recentThrows = (t.recentThrows ?? (state.recentThrows || []).filter(h => h.teamIdx === i)).slice(-3);
+    // 旧バージョンで保存された試合では、カードにない古い投擲を共有履歴から補う
+    const teamThrows = t.recentThrows ?? [];
+    const sharedThrows = (state.recentThrows || []).filter(h => h.teamIdx === i);
+    const olderThrows = sharedThrows.slice(0, Math.max(0, sharedThrows.length - teamThrows.length));
+    const recentThrows = [...olderThrows, ...teamThrows].slice(-5);
     const throwChips = recentThrows.map((h, index) => {
       const latest = index === recentThrows.length - 1 ? ' latest' : '';
       if (h.points === 0) {
